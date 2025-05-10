@@ -55,19 +55,27 @@ class Ticket:
         pdf.cell(40, 10, "Subtotal", 1)
         pdf.ln()
         pdf.set_font("helvetica", "", 12)
-        total = 0
+        subtotal = 0
         for prod in self.productos:
             nombre = prod["nombre"]
             cantidad = int(prod["unidades"])
             precio_unitario = float(prod["precio"])
-            subtotal = cantidad * precio_unitario
-            total += subtotal
+            subtotal_prod = cantidad * precio_unitario
+            subtotal += subtotal_prod
             pdf.cell(80, 10, nombre, 1)
             pdf.cell(30, 10, str(cantidad), 1, align="C")
             pdf.cell(40, 10, f"${precio_unitario:.2f}", 1, align="R")
-            pdf.cell(40, 10, f"${subtotal:.2f}", 1, align="R")
+            pdf.cell(40, 10, f"${subtotal_prod:.2f}", 1, align="R")
             pdf.ln()
         pdf.set_font("helvetica", "B", 12)
+        iva = subtotal * 0.16  # IVA del 16%
+        total = subtotal + iva
+        pdf.cell(150, 10, "SUBTOTAL", 1)
+        pdf.cell(40, 10, f"${subtotal:.2f}", 1, align="R")
+        pdf.ln()
+        pdf.cell(150, 10, "IVA (16%)", 1)
+        pdf.cell(40, 10, f"${iva:.2f}", 1, align="R")
+        pdf.ln()
         pdf.cell(150, 10, "TOTAL", 1)
         pdf.cell(40, 10, f"${total:.2f}", 1, align="R")
         pdf.ln(20)

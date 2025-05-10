@@ -1,19 +1,43 @@
-import pygame  # Importa la biblioteca pygame para crear la interfaz gráfica.
-import sys  # Importa el módulo sys para manejar operaciones del sistema.
-import login  # Importa el módulo login para manejar la autenticación de usuarios.
-from puntoventa import PuntoVenta  # Importa la clase PuntoVenta desde el módulo puntoventa.
-from almacen import almacen  # Importa la clase almacen desde el módulo almacen.
-from reporte import reporte  # Importa la clase reporte desde el módulo reporte.
-from ajustes import ajustes  # Importa la clase ajustes desde el módulo ajustes.
-import datetime
-from pedido import Pedido
+"""
+Menú Principal del Sistema de Panadería Bambi
+-------------------------------------------
+Sistema de navegación principal desarrollado en Pygame que integra:
+- Punto de venta (POS)
+- Gestión de almacén
+- Gestión de pedidos
+- Gestión de recetas
+- Reportes de ventas
+- Configuración/Ajustes
+- Control de roles y permisos
 
-# Inicializar pygame
-pygame.init()  # Inicializa todos los módulos de pygame.
+Características principales:
+- Interfaz adaptativa a diferentes resoluciones
+- Sistema de permisos basado en roles
+- Navegación modular entre secciones
+- Integración con sistema de login
+- Captura de pantalla con F12
+- Diseño escalable
 
-# Obtener tamaño de pantalla
-info = pygame.display.Info()  # Obtiene información sobre el entorno de visualización actual.
-SCREEN_WIDTH, SCREEN_HEIGHT = info.current_w, info.current_h  # Asigna el ancho y alto de la pantalla.
+Versión: 1.0
+"""
+
+import pygame  # Biblioteca para crear la interfaz gráfica
+import sys  # Módulo para operaciones del sistema
+import login  # Módulo de login para autenticación
+from puntoventa import PuntoVenta  # Clase para punto de venta
+from almacen import almacen  # Clase para gestión de almacén
+from reporte import reporte  # Clase para generación de reportes
+from ajustes import ajustes  # Clase para configuración del sistema
+import datetime  # Módulo para timestamps en capturas de pantalla
+from pedido import Pedido  # Clase para gestión de pedidos
+from receta import Receta  # Clase para gestión de recetas
+
+# Inicialización de Pygame
+pygame.init()
+
+# Configuración de pantalla adaptativa
+info = pygame.display.Info()
+SCREEN_WIDTH, SCREEN_HEIGHT = info.current_w, info.current_h
 
 # Configuración de la ventana
 ventana = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)  # Configura la ventana para que sea redimensionable.
@@ -34,21 +58,43 @@ color_boton = (219, 237, 232)  # Color del botón.
 color_texto_boton = (74, 155, 135)  # Color del texto del botón.
 
 # Escalado proporcional de fuentes
+# Función para escalado proporcional de fuentes
 def fuente_relativa(base_size):
-    # base_size es el tamaño de fuente pensado para 1900x1000
-    scale = min(SCREEN_WIDTH / 1900, SCREEN_HEIGHT / 1000)  # Calcula la escala proporcional.
-    return int(base_size * scale)  # Devuelve el tamaño de fuente escalado.
+    """
+    Calcula el tamaño de fuente escalado según la resolución actual
+    
+    Args:
+        base_size (int): Tamaño base para resolución 1900x1000
+        
+    Returns:
+        int: Tamaño de fuente escalado
+    """
+    # Resolución base: 1900x1000
+    scale = min(SCREEN_WIDTH / 1900, SCREEN_HEIGHT / 1000)
+    return int(base_size * scale)
+
 
 fuente_titulo = pygame.font.SysFont("Times New Roman", fuente_relativa(70), bold=True)  # Fuente para el título.
 fuente_usuario = pygame.font.SysFont("Open Sans", fuente_relativa(40), bold=True)  # Fuente para el usuario.
 fuente_boton = pygame.font.SysFont("Open Sans", fuente_relativa(40), bold=True)  # Fuente para el botón.
 
 # Cargar y escalar las imágenes utilizadas en la interfaz
+# Función para cargar y escalar imágenes
 def cargar_imagen(path, base_size):
-    scale = min(SCREEN_WIDTH / 1900, SCREEN_HEIGHT / 1000)  # Calcula la escala proporcional.
-    size = (int(base_size[0] * scale), int(base_size[1] * scale))  # Calcula el nuevo tamaño de la imagen.
-    img = pygame.image.load(path)  # Carga la imagen desde el archivo.
-    return pygame.transform.scale(img, size)  # Redimensiona la imagen.
+    """
+    Carga y escala una imagen según la resolución actual
+    
+    Args:
+        path (str): Ruta del archivo de imagen
+        base_size (tuple): Tamaño base para resolución 1900x1000
+        
+    Returns:
+        pygame.Surface: Imagen cargada y escalada
+    """
+    scale = min(SCREEN_WIDTH / 1900, SCREEN_HEIGHT / 1000)
+    size = (int(base_size[0] * scale), int(base_size[1] * scale))
+    img = pygame.image.load(path)
+    return pygame.transform.scale(img, size)
 
 imagen_logo = cargar_imagen("imagenes/log.png", (110, 110))  # Carga y escala la imagen del logo.
 imagen_usuario = cargar_imagen("imagenes/usuario.png", (50, 50))  # Carga y escala la imagen del usuario.
@@ -58,17 +104,32 @@ imagen_reporte = cargar_imagen("imagenes/reporte.png", (50, 50))  # Carga y esca
 imagen_ajuste = cargar_imagen("imagenes/ajuste.png", (50, 50))  # Carga y escala la imagen de ajustes.
 imagen_salir = cargar_imagen("imagenes/salir.png", (50, 50))  # Carga y escala la imagen de salir.
 
+# Instanciar módulos del sistema
+# Todos los módulos se posicionan en el área de trabajo (85% de pantalla)
+area_trabajo_x = int(0.15 * SCREEN_WIDTH)
+area_trabajo_y = int(0.15 * SCREEN_HEIGHT)
+area_trabajo_ancho = SCREEN_WIDTH - area_trabajo_x
+area_trabajo_alto = SCREEN_HEIGHT - area_trabajo_x
+
 # Instancia de las clases PuntoVenta, almacen, reporte y ajustes
 punto_venta       = PuntoVenta(x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase PuntoVenta.
 almacen_instancia = almacen   (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH)) # Crea una instancia de la clase almacen.
 reporte_instancia = reporte   (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase reporte.
 ajustes_instancia = ajustes   (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase ajustes.
 pedido_instancia =  Pedido    (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))
-
+receta_instancia =  Receta    (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))
 
 def dibujar_interfaz(nombre_usuario):
     """
-    Dibuja la interfaz gráfica completa en la ventana de pygame.
+    Dibuja la interfaz completa del menú principal
+    
+    Incluye:
+    - Encabezado con título y usuario
+    - Menú lateral con botones
+    - Área principal para módulos activos
+    
+    Args:
+        nombre_usuario (str): Nombre del usuario logueado
     """
     # Proporciones relativas
     w, h = SCREEN_WIDTH, SCREEN_HEIGHT  # Ancho y alto de la pantalla.
@@ -114,6 +175,7 @@ def dibujar_interfaz(nombre_usuario):
         ("VENTA", imagen_venta),
         ("ALMACEN", imagen_almacen),
         ("PEDIDO", imagen_reporte), 
+        ("RECETA", imagen_almacen),
         ("REPORTES", imagen_reporte),
         ("AJUSTES", imagen_ajuste),
         ("SALIR", imagen_salir)
@@ -121,8 +183,9 @@ def dibujar_interfaz(nombre_usuario):
 
     # Posiciones relativas para los botones
     posiciones_y = [
-        int(0.17 * h), int(0.27 * h), int(0.37 * h), int(0.47 * h), int(0.57 * h), int(0.87 * h)
-    ]  # Lista de posiciones en el eje Y para los botones.
+        int(0.17 * h), int(0.27 * h), int(0.37 * h), int(0.47 * h), int(0.57 * h), int(0.67 * h), int(0.87 * h)
+    ] 
+
     boton_height = int(0.06 * h)  # Alto de los botones.
     boton_width = int(0.14 * w)  # Ancho de los botones.
     for i, (texto, imagen) in enumerate(botones):
@@ -138,6 +201,8 @@ def dibujar_interfaz(nombre_usuario):
         almacen_instancia.dibujar_punto_venta(ventana)
     elif mostrar_pedidos:
         pedido_instancia.dibujar_pedido(ventana)
+    elif mostrar_recetas:  # Añadir esta condición
+        receta_instancia.dibujar_receta(ventana)
     elif mostrar_reportes:
         reporte_instancia.dibujar_reporte(ventana)
     elif mostrar_ajustes:
@@ -145,28 +210,45 @@ def dibujar_interfaz(nombre_usuario):
 
 def ventas():
     """
-    Función temporal para manejar la acción de ventas.
+    Función temporal para manejar la acción de ventas
+    
+    Note:
+        Esta función se puede usar para acciones adicionales relacionadas con ventas
     """
     print("¡Éxito! Bienvenido")
 
+# Variables globales para controlar la visualización de módulos
 mostrar_punto_venta = False
 mostrar_almacen = False
 mostrar_reportes = False
-mostrar_ajustes = False  # Variable de control para ajustes
+mostrar_ajustes = False
 mostrar_pedidos = False
+mostrar_recetas = False
 
 def main(nombre_usuario, puesto):
-    global mostrar_punto_venta
-    global mostrar_almacen
-    global mostrar_pedidos
-    global mostrar_reportes
-    global mostrar_ajustes
+    """
+    Función principal del menú
+    
+    Maneja:
+    - Sistema de permisos basado en roles
+    - Navegación entre módulos
+    - Eventos de mouse y teclado
+    - Redimensionamiento de ventana
+    - Capturas de pantalla
+    - Transición de regreso al login
+    
+    Args:
+        nombre_usuario (str): Nombre del usuario logueado
+        puesto (str): Rol del usuario (VENDEDOR, ALMACENISTA, GERENTE)
+    """
+    global mostrar_punto_venta, mostrar_almacen, mostrar_pedidos
+    global mostrar_reportes, mostrar_ajustes, mostrar_recetas
 
     # Definir permisos según el rol
     permisos = {
         "VENDEDOR": ["VENTA", "PEDIDO"],  
-        "ALMACENISTA": ["ALMACEN"],
-        "GERENTE": ["VENTA", "ALMACEN", "PEDIDO", "REPORTES", "AJUSTES"]  
+        "ALMACENISTA": ["ALMACEN", "RECETA"],  # Añadir permiso de receta al almacenista
+        "GERENTE": ["VENTA", "ALMACEN", "PEDIDO", "RECETA", "REPORTES", "AJUSTES"]  # Añadir permiso de receta al gerente
     }
 
     # Obtener permisos del usuario actual
@@ -203,23 +285,34 @@ def main(nombre_usuario, puesto):
                             mostrar_pedidos = True
                             mostrar_punto_venta = False
                             mostrar_almacen = False
+                            mostrar_recetas = False
                             mostrar_reportes = False
                             mostrar_ajustes = False
-                        elif int(0.47 * SCREEN_HEIGHT) <= mouse_y <= int(0.53 * SCREEN_HEIGHT) and "REPORTES" in permisos_usuario:
+                        elif int(0.47 * SCREEN_HEIGHT) <= mouse_y <= int(0.53 * SCREEN_HEIGHT) and "RECETA" in permisos_usuario:
+                            # Añadir esta condición para el botón de receta
+                            mostrar_recetas = True
+                            mostrar_punto_venta = False
+                            mostrar_almacen = False
+                            mostrar_pedidos = False
+                            mostrar_reportes = False
+                            mostrar_ajustes = False
+                        elif int(0.57 * SCREEN_HEIGHT) <= mouse_y <= int(0.63 * SCREEN_HEIGHT) and "REPORTES" in permisos_usuario:
                             mostrar_reportes = True
                             mostrar_punto_venta = False
                             mostrar_almacen = False
                             mostrar_pedidos = False
+                            mostrar_recetas = False
                             mostrar_ajustes = False
-                        elif int(0.57 * SCREEN_HEIGHT) <= mouse_y <= int(0.63 * SCREEN_HEIGHT) and "AJUSTES" in permisos_usuario:
+                        elif int(0.67 * SCREEN_HEIGHT) <= mouse_y <= int(0.73 * SCREEN_HEIGHT) and "AJUSTES" in permisos_usuario:
                             mostrar_ajustes = True
                             mostrar_punto_venta = False
                             mostrar_almacen = False
                             mostrar_pedidos = False
+                            mostrar_recetas = False
                             mostrar_reportes = False
                         elif int(0.87 * SCREEN_HEIGHT) <= mouse_y <= int(0.93 * SCREEN_HEIGHT):
                             en_menu = False  # Salir del menú
-                            en_menu = False  # <--- Aquí termina el ciclo del menú
+
                 # Pasa eventos a la sección activa
                 elif event.type == pygame.KEYDOWN:
                     # --- Captura de pantalla con F12 ---
@@ -228,8 +321,10 @@ def main(nombre_usuario, puesto):
                         filename = f"screenshot_{now}.png"
                         pygame.image.save(ventana, filename)
                         print(f"Captura de pantalla guardada como {filename}")
-
-                if mostrar_punto_venta:
+                
+                if mostrar_recetas:
+                    receta_instancia.handle_event(event)
+                elif mostrar_punto_venta:
                     punto_venta.handle_event(event)
                 if mostrar_pedidos:
                     pedido_instancia.handle_event(event)
@@ -239,6 +334,7 @@ def main(nombre_usuario, puesto):
                     reporte_instancia.handle_event(event)
                 elif mostrar_ajustes:
                     ajustes_instancia.handle_event(event)
+                
 
             dibujar_interfaz(nombre_usuario)
             pygame.display.flip()
@@ -249,3 +345,8 @@ def main(nombre_usuario, puesto):
 
     # Al salir del menú, regresa al login
     login.main()
+
+
+if __name__ == '__main__':
+     # Modo debug - iniciar directamente como gerente
+    main('Bernardo', 'GERENTE')

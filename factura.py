@@ -62,7 +62,7 @@ class Factura:
     def validar_rfc(self, rfc):
         """
         Valida que el RFC tenga el formato correcto según las reglas mexicanas.
-        Personas físicas: 13 caracteres (AAAA######XXX)
+        Personas                                                físicas: 13 caracteres (AAAA######XXX)
         Personas morales: 12 caracteres (AAA######XXX)
         Donde A=letra, #=número, X=alfanumérico
         """

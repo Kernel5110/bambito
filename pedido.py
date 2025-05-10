@@ -1,9 +1,53 @@
+"""
+Sistema de Gestión de Pedidos para Panadería
+------------------------------------------
+Sistema desarrollado en Pygame para administrar pedidos personalizados:
+- Crear nuevos pedidos por adelantado
+- Gestionar pedidos pendientes
+- Procesar entregas de pedidos listos
+- Seguimiento de fechas de entrega
+- Registro automático de fechas
+
+Características principales:
+- Interfaz dual: NUEVO (crear) y RECOGER (entregar)
+- Búsqueda de pedidos por cliente
+- Creación de productos sobre la marcha
+- Validación de datos completa
+- Integración con sistema de clientes y productos
+
+Versión: 1.0
+"""
+
 import pygame
-from conexion import Conexion
+from receta import Conexion
 from datetime import datetime
 
 class InputBox:
+    """
+    Campo de entrada de texto personalizado para Pygame
+    
+    Permite crear campos con validación numérica opcional
+    y manejo completo de eventos.
+    
+    Attributes:
+        rect (pygame.Rect): Posición y dimensiones del campo
+        text (str): Texto actual del campo
+        numeric (bool): Si True, solo acepta números y punto decimal
+        active (bool): Estado de activación del campo
+        color (pygame.Color): Color actual del borde
+    """
+    
     def __init__(self, x, y, ancho, alto, text='', font=None, numeric=False):
+        """
+        Inicializa un campo de entrada
+        
+        Args:
+            x, y (int): Posición del campo
+            ancho, alto (int): Dimensiones del campo
+            text (str, optional): Texto inicial. Defaults to ''.
+            font (pygame.font.Font, optional): Fuente personalizada. Defaults to None.
+            numeric (bool, optional): Solo permite números. Defaults to False.
+        """
         self.rect = pygame.Rect(x, y, ancho, alto)
         self.color_inactive = pygame.Color('lightskyblue3')
         self.color_active = pygame.Color('dodgerblue2')
@@ -15,12 +59,20 @@ class InputBox:
         self.numeric = numeric
 
     def handle_event(self, event):
+        """
+        Maneja eventos de mouse y teclado para el campo
+        
+        Args:
+            event (pygame.event.Event): Evento de Pygame
+        """
         if event.type == pygame.MOUSEBUTTONDOWN:
+            # Activar/desactivar campo según clic
             if self.rect.collidepoint(event.pos):
                 self.active = not self.active
             else:
                 self.active = False
             self.color = self.color_active if self.active else self.color_inactive
+            
         if event.type == pygame.KEYDOWN:
             if self.active:
                 if event.key == pygame.K_RETURN:
@@ -28,6 +80,7 @@ class InputBox:
                 elif event.key == pygame.K_BACKSPACE:
                     self.text = self.text[:-1]
                 else:
+                    # Validar entrada según tipo de campo
                     if self.numeric:
                         if event.unicode.isdigit() or (event.unicode == '.' and '.' not in self.text):
                             self.text += event.unicode
@@ -37,14 +90,49 @@ class InputBox:
                 self.txt_surface = self.font.render(self.text, True, (0, 0, 0))
 
     def draw(self, screen):
+        """
+        Dibuja el campo en la pantalla
+        
+        Args:
+            screen (pygame.Surface): Superficie donde dibujar
+        """
         screen.blit(self.txt_surface, (self.rect.x+5, self.rect.y+5))
         pygame.draw.rect(screen, self.color, self.rect, 2)
 
     def get_value(self):
+        """
+        Obtiene el valor actual del campo
+        
+        Returns:
+            str: Texto actual del campo
+        """
         return self.text
 
 class Pedido:    
+    """
+    Clase principal para la gestión de pedidos
+    
+    Maneja dos vistas principales:
+    1. NUEVO: Crear nuevos pedidos
+    2. RECOGER: Gestionar entregas
+    
+    Attributes:
+        x, y (int): Posición de la interfaz
+        ancho, alto (int): Dimensiones de la interfaz
+        opcion_seleccionada (str): Vista actual ("NUEVO" o "RECOGER")
+        datos_tabla (list): Pedidos actualmente mostrados
+        mostrando_formulario (bool): Estado del formulario de creación
+        mensaje_alerta (str): Mensaje temporal para el usuario
+    """
+
     def __init__(self, x, y, ancho, alto):
+        """
+        Inicializa el sistema de gestión de pedidos
+        
+        Args:
+            x, y (int): Posición de la interfaz
+            ancho, alto (int): Dimensiones de la interfaz
+        """
         pygame.font.init()
         self.FONDO = (241, 236, 227)
         self.x = x
@@ -56,11 +144,12 @@ class Pedido:
         self.fuente_titulo = pygame.font.SysFont("Times New Roman", int(self.alto * 0.08), bold=True)
         self.color_texto = (0, 0, 0)
 
+        # Configuración de navegación
         self.botones_opciones = ["NUEVO", "RECOGER"]
         self.opcion_seleccionada = self.botones_opciones[0]
         self.fuente_boton = pygame.font.SysFont("Open Sans", int(self.alto * 0.045), bold=True)
 
-        # Botones de opciones y agregar
+        # Configuración de botones
         self.boton_width = int(self.ancho * 0.13)
         self.boton_height = int(self.alto * 0.07)
         self.boton_margin = int(self.ancho * 0.015)
@@ -75,6 +164,7 @@ class Pedido:
         self.color_boton = (220, 220, 220)
         self.color_boton_activo = (180, 180, 255)
 
+        # Botón principal (crear/entregar)
         self.boton_agregar_rect = pygame.Rect(
             self.x + self.ancho - self.boton_width - self.boton_margin,
             self.y + int(self.alto * 0.11),
@@ -85,21 +175,23 @@ class Pedido:
         self.fuente_boton_agregar = pygame.font.SysFont("Open Sans", int(self.alto * 0.045), bold=True)
         self.agregar_hover = False
 
+        # Configuración de búsqueda
         self.busqueda_activa = False
         self.busqueda_texto = ""
         self.NEGRO = (0, 0, 0)
         self.fuente_busqueda = pygame.font.SysFont("Open Sans", int(self.alto * 0.045))
 
+        # Configuración de tabla
         self.fuente_tabla = pygame.font.SysFont("Open Sans", int(self.alto * 0.04))
         self.color_tabla_header = (200, 200, 255)
         self.color_tabla_row = (255, 255, 255)
         self.color_tabla_border = (180, 180, 180)
         
-        # Agregar nuevos atributos para manejar pedidos
+        # Datos y formularios
         self.datos_tabla = []
         self.cargar_datos_tabla()
         
-        # Formulario para pedidos
+        # Estado del formulario
         self.mostrando_formulario = False
         self.formulario_boxes = []
         self.formulario_labels = []
@@ -107,26 +199,39 @@ class Pedido:
         self.formulario_btn_cancelar = None
         self.formulario_mensaje = ""
         
-        # Productos en pedido actual
+        # Estado temporal
         self.productos_pedido = []
         
-        # Mensaje de alerta
+        # Sistema de alertas
         self.mensaje_alerta = ""
         self.tiempo_alerta = 0
         
-        # Para prevenir errores
+        # Evitar errores de referencia
         self.formulario_btn_agregar_producto = None
 
     def mostrar_alerta(self, mensaje, duracion=3000):
+        """
+        Muestra un mensaje temporal en la interfaz
+        
+        Args:
+            mensaje (str): Mensaje a mostrar
+            duracion (int, optional): Duración en milisegundos. Defaults to 3000.
+        """
         self.mensaje_alerta = mensaje
         self.tiempo_alerta = pygame.time.get_ticks() + duracion
 
     def cargar_datos_tabla(self):
+        """
+        Carga los pedidos desde la base de datos según la vista actual
+        
+        Vista NUEVO: Muestra pedidos pendientes
+        Vista RECOGER: Muestra pedidos listos para entregar
+        """
         conexion = Conexion()
         texto = self.busqueda_texto.strip().lower()
         
         if self.opcion_seleccionada == "NUEVO":
-            # En la vista "NUEVO" mostramos pedidos pendientes
+            # Pedidos pendientes
             query = """
                 SELECT 
                     p.ID_PedidoVenta AS id,
@@ -144,7 +249,7 @@ class Pedido:
                 query += " AND LOWER(c.Nombre) LIKE %s"
                 params = (f"%{texto}%",)
         else:  # RECOGER
-            # En la vista "RECOGER" mostramos pedidos listos para recoger
+            # Pedidos listos para recoger
             query = """
                 SELECT 
                     p.ID_PedidoVenta AS id,
@@ -169,6 +274,12 @@ class Pedido:
             self.datos_tabla = []
 
     def dibujar_pedido(self, surface):
+        """
+        Dibuja la interfaz completa de gestión de pedidos
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+        """
         # Fondo principal
         pygame.draw.rect(surface, self.FONDO, (self.x, self.y, self.ancho, self.alto))
         
@@ -183,7 +294,7 @@ class Pedido:
         busq_h = self.boton_height
         self.dibujar_campo_busqueda(surface, busq_x, busq_y, busq_w, busq_h)
 
-        # Botones de opciones
+        # Botones de navegación
         for i, rect in enumerate(self.boton_rects):
             color = self.color_boton_activo if self.opcion_seleccionada == self.botones_opciones[i] else self.color_boton
             pygame.draw.rect(surface, color, rect, border_radius=8)
@@ -191,7 +302,7 @@ class Pedido:
             text_rect = texto_boton.get_rect(center=rect.center)
             surface.blit(texto_boton, text_rect)
 
-        # Botón de agregar
+        # Botón principal (crear/entregar)
         color_agregar = self.color_boton_agregar_hover if self.agregar_hover else self.color_boton_agregar
         pygame.draw.rect(surface, color_agregar, self.boton_agregar_rect, border_radius=8)
         texto_agregar = "Crear Pedido" if self.opcion_seleccionada == "NUEVO" else "Entregar"
@@ -199,14 +310,14 @@ class Pedido:
         text_rect_agregar = texto_agregar_render.get_rect(center=self.boton_agregar_rect.center)
         surface.blit(texto_agregar_render, text_rect_agregar)
 
-        # Tabla
+        # Tabla de pedidos
         tabla_x = self.x + int(self.ancho * 0.03)
         tabla_y = self.y + int(self.alto * 0.23)
         tabla_width = int(self.ancho * 0.94)
         tabla_row_height = int(self.alto * 0.07)
         self.dibujar_tabla(surface, tabla_x, tabla_y, tabla_width, tabla_row_height, self.datos_tabla)
         
-        # Mensaje de alerta
+        # Mensaje de alerta temporal
         if self.mensaje_alerta and pygame.time.get_ticks() < self.tiempo_alerta:
             self.dibujar_alerta(surface)
             
@@ -215,6 +326,14 @@ class Pedido:
             self.dibujar_formulario(surface)
 
     def dibujar_campo_busqueda(self, surface, x, y, w, h):
+        """
+        Dibuja el campo de búsqueda de clientes
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+            x, y (int): Posición del campo
+            w, h (int): Dimensiones del campo
+        """
         color_fondo = (255, 255, 255)
         color_borde = (100, 100, 100) if self.busqueda_activa else (180, 180, 180)
         pygame.draw.rect(surface, color_fondo, (x, y, w, h), border_radius=10)
@@ -225,6 +344,12 @@ class Pedido:
         surface.blit(render, (x + 10, y + (h - render.get_height()) // 2))
         
     def dibujar_alerta(self, surface):
+        """
+        Dibuja un mensaje de alerta temporal
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+        """
         alerta_w = int(self.ancho * 0.4)
         alerta_h = int(self.alto * 0.08)
         alerta_x = self.x + (self.ancho - alerta_w) // 2
@@ -237,7 +362,18 @@ class Pedido:
         texto = font_alerta.render(self.mensaje_alerta, True, (100, 80, 0))
         surface.blit(texto, (alerta_x + (alerta_w - texto.get_width()) // 2, alerta_y + (alerta_h - texto.get_height()) // 2))
 
+
     def dibujar_tabla(self, surface, x, y, width, row_height, datos):
+        """
+        Dibuja la tabla de pedidos con formato adaptativo
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+            x, y (int): Posición de la tabla
+            width (int): Ancho total de la tabla
+            row_height (int): Altura de cada fila
+            datos (list): Lista de pedidos a mostrar
+        """
         # Definir columnas según la vista
         if self.opcion_seleccionada == "NUEVO":
             columnas = ["ID", "Cliente", "Fecha pedido", "Fecha entrega", "Estado", "Total"]
@@ -290,15 +426,25 @@ class Pedido:
             fila_y += row_height
 
     def mostrar_formulario(self):
-        """Configura el formulario para crear un nuevo pedido"""
+        """
+        Configura y muestra el formulario para crear un nuevo pedido
+        
+        Campos del formulario:
+        1. Correo del cliente
+        2. Fecha de entrega
+        3. Nombre del producto
+        4. Cantidad
+        5. Precio unitario
+        6. Observaciones
+        """
         self.mostrando_formulario = True
         font = pygame.font.SysFont("Open Sans", int(self.alto * 0.035))
         
-        # Centrar mejor el formulario
+        # Centrar el formulario
         x = self.x + int(self.ancho * 0.25)
         y = self.y + int(self.alto * 0.18)
         
-        # Definimos campos para crear un pedido
+        # Definir campos del formulario
         labels = [
             "Correo Cliente:", "Fecha Entrega:", "Nombre Producto:", 
             "Cantidad:", "Precio Unitario:", "Observaciones:"
@@ -385,6 +531,12 @@ class Pedido:
         self.formulario_mensaje = ""
 
     def dibujar_formulario(self, surface):
+        """
+        Dibuja el formulario de creación de pedidos
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+        """
         # Fondo semitransparente
         overlay = pygame.Surface((self.ancho, self.alto), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 150))
@@ -456,7 +608,20 @@ class Pedido:
             surface.blit(msg, (msg_x, form_y + form_h - 40))
 
     def guardar_pedido(self):
-        """Guarda un pedido en la base de datos directamente con los datos del formulario"""
+        """
+        Guarda un nuevo pedido en la base de datos
+        
+        Proceso:
+        1. Valida todos los campos del formulario
+        2. Busca el cliente por correo electrónico
+        3. Busca o crea el producto especificado
+        4. Calcula el total del pedido
+        5. Inserta el pedido en la base de datos
+        6. Inserta el detalle del pedido
+        
+        Returns:
+            bool: True si el pedido se guardó exitosamente
+        """
         # Verificar datos
         correo_cliente = self.formulario_boxes[0].get_value()
         fecha_entrega = self.formulario_boxes[1].get_value()

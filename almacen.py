@@ -1,9 +1,51 @@
 
+"""
+Sistema de Gestión de Almacén para Panadería
+-------------------------------------------
+Sistema desarrollado en Pygame para gestionar el inventario completo de:
+- Insumos (productos terminados, empaques, etc.)
+- Materias primas (harina, azúcar, levadura, etc.)
+
+Características principales:
+- Visualización tabular de inventario
+- Búsqueda instantánea
+- Agregar nuevos elementos al inventario
+- Control de stock mínimo
+- Administración de fechas de entrada y caducidad
+- Precios y cálculo de IVA
+
+Versión: 1.0
+"""
+
 import pygame
-from conexion import Conexion
+from receta import Conexion
 
 class InputBox:
+    """
+    Clase para campos de entrada de texto con validación opcional
+    
+    Permite crear inputs con validación numérica y manejo completo
+    de eventos de mouse y teclado.
+    
+    Attributes:
+        rect (pygame.Rect): Dimensiones y posición del campo
+        text (str): Texto actual en el campo
+        numeric (bool): Si True, solo acepta números y punto decimal
+        active (bool): Estado de activación del campo
+        color (pygame.Color): Color actual del borde
+    """
+    
     def __init__(self, x, y, w, h, text='', font=None, numeric=False):
+        """
+        Inicializa un campo de entrada
+        
+        Args:
+            x, y (int): Posición del campo
+            w, h (int): Dimensiones del campo
+            text (str, optional): Texto inicial. Defaults to ''.
+            font (pygame.font.Font, optional): Fuente personalizada. Defaults to None.
+            numeric (bool, optional): Solo permite números. Defaults to False.
+        """
         self.rect = pygame.Rect(x, y, w, h)
         self.color_inactive = pygame.Color('lightskyblue3')
         self.color_active = pygame.Color('dodgerblue2')
@@ -15,12 +57,20 @@ class InputBox:
         self.numeric = numeric
 
     def handle_event(self, event):
+        """
+        Maneja eventos de mouse y teclado
+        
+        Args:
+            event (pygame.event.Event): Evento de Pygame
+        """
         if event.type == pygame.MOUSEBUTTONDOWN:
+            # Activar/desactivar campo según clic
             if self.rect.collidepoint(event.pos):
                 self.active = not self.active
             else:
                 self.active = False
             self.color = self.color_active if self.active else self.color_inactive
+            
         if event.type == pygame.KEYDOWN:
             if self.active:
                 if event.key == pygame.K_RETURN:
@@ -28,6 +78,7 @@ class InputBox:
                 elif event.key == pygame.K_BACKSPACE:
                     self.text = self.text[:-1]
                 else:
+                    # Validar entrada según tipo de campo
                     if self.numeric:
                         if event.unicode.isdigit() or (event.unicode == '.' and '.' not in self.text):
                             self.text += event.unicode
@@ -37,14 +88,51 @@ class InputBox:
                 self.txt_surface = self.font.render(self.text, True, (0, 0, 0))
 
     def draw(self, screen):
+        """
+        Dibuja el campo en la pantalla
+        
+        Args:
+            screen (pygame.Surface): Superficie donde dibujar
+        """
         screen.blit(self.txt_surface, (self.rect.x+5, self.rect.y+5))
         pygame.draw.rect(screen, self.color, self.rect, 2)
 
     def get_value(self):
+        """
+        Obtiene el valor actual del campo
+        
+        Returns:
+            str: Texto actual
+        """
         return self.text
 
 class almacen:
+    """
+    Clase principal del sistema de gestión de almacén
+    
+    Maneja la interfaz completa para:
+    - Visualizar inventario de insumos y materias primas
+    - Buscar elementos en el inventario
+    - Agregar nuevos elementos
+    - Controlar stock y fechas de caducidad
+    
+    Attributes:
+        x, y (int): Posición de la interfaz
+        ancho, alto (int): Dimensiones de la interfaz
+        opcion_seleccionada (str): Categoría actualmente mostrada
+        datos_tabla (list): Datos actuales mostrados en la tabla
+        busqueda_texto (str): Texto de búsqueda actual
+        mostrando_formulario (bool): Estado del formulario de agregar
+    """
+    
     def __init__(self, x, y, ancho, alto):
+        """
+        Inicializa el sistema de almacén
+        
+        Args:
+            x, y (int): Posición de la interfaz
+            ancho, alto (int): Dimensiones de la interfaz
+        """
         pygame.font.init()
         self.FONDO = (241, 236, 227)
         self.x = x
@@ -52,15 +140,16 @@ class almacen:
         self.ancho = ancho
         self.alto = alto
 
-        # Fuentes escaladas
+        # Configuración de fuentes escaladas
         self.fuente_titulo = pygame.font.SysFont("Times New Roman", int(self.alto * 0.08), bold=True)
         self.color_texto = (0, 0, 0)
 
+        # Configuración de navegación
         self.botones_opciones = ["INSUMOS", "MATERIA PRIMA"]
         self.opcion_seleccionada = self.botones_opciones[0]
         self.fuente_boton = pygame.font.SysFont("Open Sans", int(self.alto * 0.045), bold=True)
 
-        # Botones de opciones y agregar
+        # Configuración de botones
         self.boton_width = int(self.ancho * 0.13)
         self.boton_height = int(self.alto * 0.07)
         self.boton_margin = int(self.ancho * 0.015)
@@ -75,6 +164,7 @@ class almacen:
         self.color_boton = (220, 220, 220)
         self.color_boton_activo = (180, 180, 255)
 
+        # Botón agregar
         self.boton_agregar_rect = pygame.Rect(
             self.x + self.ancho - self.boton_width - self.boton_margin,
             self.y + int(self.alto * 0.11),
@@ -85,11 +175,13 @@ class almacen:
         self.fuente_boton_agregar = pygame.font.SysFont("Open Sans", int(self.alto * 0.045), bold=True)
         self.agregar_hover = False
 
+        # Configuración de búsqueda
         self.busqueda_activa = False
         self.busqueda_texto = ""
         self.NEGRO = (0, 0, 0)
         self.fuente_busqueda = pygame.font.SysFont("Open Sans", int(self.alto * 0.045))
 
+        # Configuración de tabla
         self.fuente_tabla = pygame.font.SysFont("Open Sans", int(self.alto * 0.04))
         self.color_tabla_header = (200, 200, 255)
         self.color_tabla_row = (255, 255, 255)
@@ -99,7 +191,7 @@ class almacen:
         self.datos_tabla = []
         self.cargar_datos_tabla()
 
-        # Formulario gráfico
+        # Configuración del formulario
         self.mostrando_formulario = False
         self.formulario_boxes = []
         self.formulario_labels = []
@@ -108,8 +200,17 @@ class almacen:
         self.formulario_mensaje = ""
 
     def cargar_datos_tabla(self):
+        """
+        Carga los datos de la tabla según la categoría seleccionada y búsqueda
+        
+        Consulta la base de datos filtrando por:
+        - Categoría (INSUMOS o MATERIA PRIMA)
+        - Texto de búsqueda
+        - Estados válidos (Disponible, Agotado, Descontinuado)
+        """
         conexion = Conexion()
         texto = self.busqueda_texto.strip().lower()
+        
         if self.opcion_seleccionada == "INSUMOS":
             query = """
                 SELECT Nombre AS nombre, 
@@ -141,8 +242,15 @@ class almacen:
         self.datos_tabla = conexion.consultar(query, params)
 
     def dibujar_punto_venta(self, surface):
+        """
+        Dibuja la interfaz completa del almacén
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+        """
         # Fondo principal
         pygame.draw.rect(surface, self.FONDO, (self.x, self.y, self.ancho, self.alto))
+        
         # Título
         titulo = self.fuente_titulo.render("Almacen", True, self.color_texto)
         surface.blit(titulo, (self.x + int(self.ancho * 0.02), self.y + int(self.alto * 0.03)))
@@ -154,7 +262,7 @@ class almacen:
         busq_h = self.boton_height
         self.dibujar_campo_busqueda(surface, busq_x, busq_y, busq_w, busq_h)
 
-        # Botones
+        # Botones de navegación
         for i, rect in enumerate(self.boton_rects):
             color = self.color_boton_activo if self.opcion_seleccionada == self.botones_opciones[i] else self.color_boton
             pygame.draw.rect(surface, color, rect, border_radius=8)
@@ -162,28 +270,42 @@ class almacen:
             text_rect = texto_boton.get_rect(center=rect.center)
             surface.blit(texto_boton, text_rect)
 
+        # Botón agregar
         color_agregar = self.color_boton_agregar_hover if self.agregar_hover else self.color_boton_agregar
         pygame.draw.rect(surface, color_agregar, self.boton_agregar_rect, border_radius=8)
         texto_agregar = self.fuente_boton_agregar.render("Agregar", True, (255, 255, 255))
         text_rect_agregar = texto_agregar.get_rect(center=self.boton_agregar_rect.center)
         surface.blit(texto_agregar, text_rect_agregar)
 
-        # Tabla
+        # Tabla de inventario
         tabla_x = self.x + int(self.ancho * 0.03)
         tabla_y = self.y + int(self.alto * 0.23)
         tabla_width = int(self.ancho * 0.94)
         tabla_row_height = int(self.alto * 0.07)
         self.dibujar_tabla(surface, tabla_x, tabla_y, tabla_width, tabla_row_height, self.datos_tabla)
 
+        # Formulario si está activo
         if self.mostrando_formulario:
             self.dibujar_formulario_agregar(surface)
 
     def dibujar_tabla(self, surface, x, y, width, row_height, datos):
+        """
+        Dibuja la tabla de inventario con los datos actuales
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+            x, y (int): Posición de la tabla
+            width (int): Ancho total de la tabla
+            row_height (int): Altura de cada fila
+            datos (list): Lista de diccionarios con los datos
+        """
+        # Definir columnas y anchos
         columnas = ["Nombre", "Categoría", "Precio", "Cantidad", "Estado"]
         col_widths = [
             int(width*0.28), int(width*0.21), int(width*0.16), int(width*0.16), int(width*0.16)
         ]
 
+        # Dibujar encabezados
         col_x = x
         for i, col in enumerate(columnas):
             pygame.draw.rect(surface, self.color_tabla_header, (col_x, y, col_widths[i], row_height))
@@ -193,6 +315,7 @@ class almacen:
             surface.blit(texto, text_rect)
             col_x += col_widths[i]
 
+        # Dibujar filas de datos
         fila_y = y + row_height
         for fila in datos:
             col_x = x
@@ -209,6 +332,14 @@ class almacen:
             fila_y += row_height
 
     def dibujar_campo_busqueda(self, surface, x, y, w, h):
+        """
+        Dibuja el campo de búsqueda de productos
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+            x, y (int): Posición del campo
+            w, h (int): Dimensiones del campo
+        """
         color_fondo = (255, 255, 255)
         color_borde = (100, 100, 100) if self.busqueda_activa else (180, 180, 180)
         pygame.draw.rect(surface, color_fondo, (x, y, w, h), border_radius=10)
@@ -219,6 +350,13 @@ class almacen:
         surface.blit(render, (x + 10, y + (h - render.get_height()) // 2))
 
     def handle_event(self, event):
+        """
+        Maneja todos los eventos del sistema
+        
+        Args:
+            event (pygame.event.Event): Evento de Pygame
+        """
+        # Eventos del formulario
         if self.mostrando_formulario:
             for box in self.formulario_boxes:
                 box.handle_event(event)
@@ -230,16 +368,23 @@ class almacen:
                     self.formulario_mensaje = ""
                 return
 
+        # Eventos de navegación y búsqueda
         if event.type == pygame.MOUSEBUTTONDOWN:
             mouse_pos = pygame.mouse.get_pos()
+            
+            # Botones de navegación
             for i, rect in enumerate(self.boton_rects):
                 if rect.collidepoint(mouse_pos):
                     self.opcion_seleccionada = self.botones_opciones[i]
                     self.cargar_datos_tabla()
                     return
+            
+            # Botón agregar
             if self.boton_agregar_rect.collidepoint(mouse_pos):
                 self.mostrar_formulario_agregar()
                 return
+            
+            # Campo de búsqueda
             busq_x = self.x + int(self.ancho * 0.02)
             busq_y = self.y + int(self.alto * 0.11)
             busq_w = int(self.ancho * 0.35)
@@ -249,10 +394,13 @@ class almacen:
                 self.busqueda_activa = True
             else:
                 self.busqueda_activa = False
+                
         elif event.type == pygame.MOUSEMOTION:
             mouse_pos = pygame.mouse.get_pos()
             self.agregar_hover = self.boton_agregar_rect.collidepoint(mouse_pos)
+            
         elif event.type == pygame.KEYDOWN and self.busqueda_activa:
+            # Manejo de teclas en búsqueda
             if event.key == pygame.K_BACKSPACE:
                 self.busqueda_texto = self.busqueda_texto[:-1]
                 self.cargar_datos_tabla()
@@ -267,6 +415,12 @@ class almacen:
                     self.cargar_datos_tabla()
 
     def dibujar_formulario_agregar(self, surface):
+        """
+        Dibuja el formulario modal para agregar elementos al inventario
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+        """
         # Fondo semitransparente
         overlay = pygame.Surface((self.ancho, self.alto), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 120))
@@ -284,12 +438,12 @@ class almacen:
         font_title = pygame.font.SysFont("Open Sans", int(self.alto * 0.06), bold=True)
         titulo = "Agregar Insumo" if self.opcion_seleccionada == "INSUMOS" else "Agregar Materia Prima"
         text_title = font_title.render(titulo, True, (0, 0, 0))
-        title_x = form_x + (form_w - text_title.get_width()) // 2  # Centered title
+        title_x = form_x + (form_w - text_title.get_width()) // 2  # Título centrado
         surface.blit(text_title, (title_x, form_y + 20))
 
         # Espaciado y posicionamiento
         label_x = form_x + 30
-        input_x = form_x + int(form_w * 0.45)  # Fixed position for inputs
+        input_x = form_x + int(form_w * 0.45)  # Posición fija para inputs
         start_y = form_y + 80
         field_height = 50
 
@@ -349,14 +503,22 @@ class almacen:
             font_msg = pygame.font.SysFont("Open Sans", int(self.alto * 0.035))
             color = (200, 0, 0) if "inválido" in self.formulario_mensaje or "obligatorio" in self.formulario_mensaje else (0, 120, 0)
             msg = font_msg.render(self.formulario_mensaje, True, color)
-            surface.blit(msg, (form_x + (form_w - msg.get_width()) // 2, form_y + form_h - 50))  # Centered message
+            surface.blit(msg, (form_x + (form_w - msg.get_width()) // 2, form_y + form_h - 50))  # Mensaje centrado
 
-    # --- AJUSTA EL FORMULARIO PARA USAR LOS CAMPOS CORRECTOS ---
     def mostrar_formulario_agregar(self):
+        """
+        Configura y muestra el formulario para agregar nuevos elementos
+        
+        Diferencia entre insumos y materias primas:
+        - Insumos: requieren fechas de entrada y caducidad
+        - Materias primas: solo requieren información básica
+        """
         self.mostrando_formulario = True
         font = pygame.font.SysFont("Open Sans", int(self.alto * 0.045))
         x = self.x + int(self.ancho * 0.22)
         y = self.y + int(self.alto * 0.20)
+        
+        # Definir campos según el tipo
         if self.opcion_seleccionada == "INSUMOS":
             labels = [
                 "Nombre", "Precio", "stock_minimo", "Descripción", "Cantidad",
@@ -364,6 +526,8 @@ class almacen:
             ]
         else:
             labels = ["Nombre", "Precio", "stock_minimo", "Descripción", "Cantidad"]
+        
+        # Crear labels y campos de entrada
         self.formulario_labels = []
         self.formulario_boxes = []
         for i, label in enumerate(labels):
@@ -379,7 +543,8 @@ class almacen:
                 numeric=numeric
             )
             self.formulario_boxes.append(box)
-        # Botones
+        
+        # Botones del formulario
         self.formulario_btn_guardar = pygame.Rect(
             x, y + 60 + len(labels) * int(self.alto * 0.06),
             int(self.ancho * 0.11), int(self.alto * 0.06)
@@ -391,13 +556,28 @@ class almacen:
         self.formulario_mensaje = ""
 
     def guardar_formulario_agregar(self):
+        """
+        Valida y guarda un nuevo elemento en el inventario
+        
+        Proceso:
+        1. Valida campos obligatorios
+        2. Convierte tipos de datos
+        3. Valida fechas (para insumos)
+        4. Inserta en la base de datos
+        
+        Returns:
+            None: Muestra mensajes de error en la interfaz
+        """
         valores = [box.get_value().strip() for box in self.formulario_boxes]
+
         if self.opcion_seleccionada == "INSUMOS":
             # Esperado: Nombre, Precio, stock_minimo, Descripción, Cantidad, Fecha Entrada, Fecha Caducidad
             if not valores[0] or not valores[1] or not valores[2] or not valores[4] or not valores[5] or not valores[6]:
                 self.formulario_mensaje = "Todos los campos son obligatorios."
                 return
+            
             nombre, precio, stock_minimo, descripcion, cantidad, fecha_entrada, fecha_caducidad = valores
+
             try:
                 precio = float(precio)
                 stock_minimo = int(stock_minimo)
@@ -411,6 +591,7 @@ class almacen:
             except Exception:
                 self.formulario_mensaje = "Datos numéricos inválidos."
                 return
+            
             estado = "Disponible"
             iva = 0.16
             conexion = Conexion()
@@ -423,32 +604,40 @@ class almacen:
             conexion.cursor.execute(insert, (
                 nombre, precio, stock_minimo, descripcion, cantidad, iva, estado, fecha_entrada, fecha_caducidad
             ))
+
             conexion.conn.commit()
             conexion.cerrar()
             self.formulario_mensaje = f"Insumo '{nombre}' agregado."
             self.cargar_datos_tabla()
             self.mostrando_formulario = False
             self.formulario_mensaje = ""
+
         else:
             # Materia Prima igual que antes
             if not valores[0] or not valores[1] or not valores[2]:
                 self.formulario_mensaje = "Nombre, precio y stock mínimo son obligatorios."
                 return
+            
             nombre, precio, stock_minimo, descripcion, cantidad = valores
+
             try:
+            
                 precio = float(precio)
                 stock_minimo = int(stock_minimo)
                 cantidad = int(cantidad)
             except Exception:
                 self.formulario_mensaje = "Datos numéricos inválidos."
                 return
+            
             estado = "Disponible"
             iva = 0.16
             conexion = Conexion()
+
             insert = """
                 INSERT INTO MateriaPrima (Nombre, Precio, stock_minimo, Descripcion, Cantidad, IVA, Estado, FK_ID_MedidaCantidad, FK_ID_TipoMateriaPrima)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 1)
             """
+
             conexion.conectar()
             conexion.cursor.execute(insert, (nombre, precio, stock_minimo, descripcion, cantidad, iva, estado))
             conexion.conn.commit()

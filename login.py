@@ -1,3 +1,24 @@
+"""
+Sistema de Login para Panadería Bambi
+------------------------------------
+Sistema de autenticación desarrollado en Pygame con:
+- Interfaz gráfica adaptativa
+- Autenticación contra base de datos
+- Validación de credenciales
+- Registro de sesiones (logs)
+- Restablecimiento de contraseña
+- Integración con menú principal
+
+Características:
+- Pantalla completa adaptativa
+- Campos de entrada con validación
+- Manejo de intentos fallidos
+- Sistema de logs para seguridad
+- Navegación con botones estilizados
+
+Versión: 1.0
+"""
+
 import pygame  # Importa la biblioteca pygame para crear la interfaz gráfica.
 import sys  # Importa el módulo sys para manejar operaciones del sistema.
 import os  # Importa el módulo os para manejar rutas de archivos y directorios.
@@ -7,7 +28,7 @@ from icecream import ic
 
 # Importa la conexión MySQL desde el archivo 'conexion.py' en el directorio 'db'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'db')))
-from conexion import Conexion  # Importa la clase Conexion desde el módulo conexion.
+from receta import Conexion  # Importa la clase Conexion desde el módulo conexion.
 
 # Importa el menú principal desde el archivo 'menu.py'
 import menu 
