@@ -1,9 +1,53 @@
+"""
+Sistema de Gestión de Recetas para Panadería
+-------------------------------------------
+Sistema desarrollado en Pygame para administrar recetas de productos:
+- Crear nuevas recetas con materias primas
+- Editar recetas existentes
+- Ver detalles de recetas
+- Gestionar ingredientes por receta
+- Calcular costos por materias primas
+
+Características principales:
+- Interfaz trimodal: CREAR, EDITAR y VER
+- Búsqueda de recetas por nombre
+- Gestión de materias primas por receta
+- Calculadora de porciones y tiempos
+- Formularios modales con validación
+
+Versión: 1.0
+"""
+
 import pygame
 from conexion import Conexion
 from datetime import datetime
 
 class InputBox:
+    """
+    Campo de entrada de texto personalizado para Pygame
+    
+    Permite crear campos con validación numérica opcional
+    y manejo completo de eventos.
+    
+    Attributes:
+        rect (pygame.Rect): Posición y dimensiones del campo
+        text (str): Texto actual del campo
+        numeric (bool): Si True, solo acepta números y punto decimal
+        active (bool): Estado de activación del campo
+        color (pygame.Color): Color actual del borde
+    """
+    
     def __init__(self, x, y, ancho, alto, text='', font=None, numeric=False):
+        """
+        Inicializa un campo de entrada
+        
+        Args:
+            x, y (int): Posición del campo
+            ancho, alto (int): Dimensiones del campo
+            text (str, optional): Texto inicial. Defaults to ''.
+            font (pygame.font.Font, optional): Fuente personalizada. Defaults to None.
+            numeric (bool, optional): Solo permite números. Defaults to False.
+        """
         self.rect = pygame.Rect(x, y, ancho, alto)
         self.color_inactive = pygame.Color('lightskyblue3')
         self.color_active = pygame.Color('dodgerblue2')
@@ -15,12 +59,20 @@ class InputBox:
         self.numeric = numeric
 
     def handle_event(self, event):
+        """
+        Maneja eventos de mouse y teclado para el campo
+        
+        Args:
+            event (pygame.event.Event): Evento de Pygame
+        """
         if event.type == pygame.MOUSEBUTTONDOWN:
+            # Activar/desactivar campo según clic
             if self.rect.collidepoint(event.pos):
                 self.active = not self.active
             else:
                 self.active = False
             self.color = self.color_active if self.active else self.color_inactive
+            
         if event.type == pygame.KEYDOWN:
             if self.active:
                 if event.key == pygame.K_RETURN:
@@ -28,6 +80,7 @@ class InputBox:
                 elif event.key == pygame.K_BACKSPACE:
                     self.text = self.text[:-1]
                 else:
+                    # Validar entrada según tipo de campo
                     if self.numeric:
                         if event.unicode.isdigit() or (event.unicode == '.' and '.' not in self.text):
                             self.text += event.unicode
@@ -37,14 +90,48 @@ class InputBox:
                 self.txt_surface = self.font.render(self.text, True, (0, 0, 0))
 
     def draw(self, screen):
+        """
+        Dibuja el campo en la pantalla
+        
+        Args:
+            screen (pygame.Surface): Superficie donde dibujar
+        """
         screen.blit(self.txt_surface, (self.rect.x+5, self.rect.y+5))
         pygame.draw.rect(screen, self.color, self.rect, 2)
 
     def get_value(self):
+        """
+        Obtiene el valor actual del campo
+        
+        Returns:
+            str: Texto actual del campo
+        """
         return self.text
-
 class Receta:    
+    """
+    Clase principal para la gestión de recetas
+    
+    Maneja tres vistas principales:
+    1. CREAR: Crear nuevas recetas
+    2. EDITAR: Modificar recetas existentes
+    3. VER: Visualizar detalles de recetas
+    
+    Attributes:
+        x, y (int): Posición de la interfaz
+        ancho, alto (int): Dimensiones de la interfaz
+        opcion_seleccionada (str): Vista actual ("CREAR", "EDITAR" o "VER")
+        datos_tabla (list): Recetas actualmente mostradas
+        materias_primas_receta (list): Ingredientes de la receta actual
+        receta_seleccionada (int): ID de la receta en edición/visualización
+    """
     def __init__(self, x, y, ancho, alto):
+        """
+        Inicializa el sistema de gestión de recetas
+        
+        Args:
+            x, y (int): Posición de la interfaz
+            ancho, alto (int): Dimensiones de la interfaz
+        """
         pygame.font.init()
         self.FONDO = (241, 236, 227)
         self.x = x
@@ -56,11 +143,12 @@ class Receta:
         self.fuente_titulo = pygame.font.SysFont("Times New Roman", int(self.alto * 0.08), bold=True)
         self.color_texto = (0, 0, 0)
 
+        # Configuración de navegación
         self.botones_opciones = ["CREAR", "EDITAR", "VER"]
         self.opcion_seleccionada = self.botones_opciones[0]
         self.fuente_boton = pygame.font.SysFont("Open Sans", int(self.alto * 0.045), bold=True)
 
-        # Botones de opciones y agregar
+        # Configuración de botones
         self.boton_width = int(self.ancho * 0.13)
         self.boton_height = int(self.alto * 0.07)
         self.boton_margin = int(self.ancho * 0.015)
@@ -75,6 +163,7 @@ class Receta:
         self.color_boton = (220, 220, 220)
         self.color_boton_activo = (180, 180, 255)
 
+        # Botón principal (crear/guardar/ver)
         self.boton_agregar_rect = pygame.Rect(
             self.x + self.ancho - self.boton_width - self.boton_margin,
             self.y + int(self.alto * 0.11),
@@ -85,21 +174,23 @@ class Receta:
         self.fuente_boton_agregar = pygame.font.SysFont("Open Sans", int(self.alto * 0.045), bold=True)
         self.agregar_hover = False
 
+        # Configuración de búsqueda
         self.busqueda_activa = False
         self.busqueda_texto = ""
         self.NEGRO = (0, 0, 0)
         self.fuente_busqueda = pygame.font.SysFont("Open Sans", int(self.alto * 0.045))
 
+        # Configuración de tabla
         self.fuente_tabla = pygame.font.SysFont("Open Sans", int(self.alto * 0.04))
         self.color_tabla_header = (200, 200, 255)
         self.color_tabla_row = (255, 255, 255)
         self.color_tabla_border = (180, 180, 180)
         
-        # Agregar atributos para manejar recetas
+        # Datos y formularios
         self.datos_tabla = []
         self.cargar_datos_tabla()
         
-        # Formulario para recetas
+        # Estado del formulario principal
         self.mostrando_formulario = False
         self.formulario_boxes = []
         self.formulario_labels = []
@@ -107,29 +198,45 @@ class Receta:
         self.formulario_btn_cancelar = None
         self.formulario_mensaje = ""
         
-        # Materias primas en receta actual
+        # Gestión de materias primas
         self.materias_primas_receta = []
         self.tabla_materias_primas_scroll = 0
         
-        # Mensaje de alerta
+        # Sistema de alertas
         self.mensaje_alerta = ""
         self.tiempo_alerta = 0
         
-        # Para agregar materias primas
+        # Estado del formulario de materias primas
         self.mostrando_form_materiaprima = False
         self.form_materiaprima_boxes = []
         self.form_materiaprima_labels = []
         self.form_materiaprima_btn_agregar = None
         self.form_materiaprima_btn_cancelar = None
         
-        # Receta seleccionada
+        # Receta actual en edición/visualización
         self.receta_seleccionada = None
 
     def mostrar_alerta(self, mensaje, duracion=3000):
+        """
+        Muestra un mensaje temporal en la interfaz
+        
+        Args:
+            mensaje (str): Mensaje a mostrar
+            duracion (int, optional): Duración en milisegundos. Defaults to 3000.
+        """
         self.mensaje_alerta = mensaje
         self.tiempo_alerta = pygame.time.get_ticks() + duracion
 
     def cargar_datos_tabla(self):
+        """
+        Carga las recetas desde la base de datos
+        
+        Incluye:
+        - Nombre de la receta
+        - Tiempo de preparación
+        - Descripción
+        - Número de ingredientes
+        """
         conexion = Conexion()
         texto = self.busqueda_texto.strip().lower()
         
@@ -139,7 +246,8 @@ class Receta:
                 r.Nombre_receta AS nombre, 
                 r.Tiempo_Preparacion AS tiempo,
                 r.Descripcion AS descripcion,
-                (SELECT COUNT(*) FROM receta WHERE ID_Receta = r.ID_Receta) AS num_ingredientes
+                r.No_Unidades AS porciones,
+                (SELECT COUNT(*) FROM receta_materiaprima WHERE ID_Receta = r.ID_Receta) AS num_ingredientes
             FROM receta r
             WHERE 1=1
         """
@@ -157,6 +265,12 @@ class Receta:
             self.datos_tabla = []
 
     def dibujar_receta(self, surface):
+        """
+        Dibuja la interfaz completa de gestión de recetas
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+        """
         # Fondo principal
         pygame.draw.rect(surface, self.FONDO, (self.x, self.y, self.ancho, self.alto))
         
@@ -171,7 +285,7 @@ class Receta:
         busq_h = self.boton_height
         self.dibujar_campo_busqueda(surface, busq_x, busq_y, busq_w, busq_h)
 
-        # Botones de opciones
+        # Botones de navegación
         for i, rect in enumerate(self.boton_rects):
             color = self.color_boton_activo if self.opcion_seleccionada == self.botones_opciones[i] else self.color_boton
             pygame.draw.rect(surface, color, rect, border_radius=8)
@@ -179,34 +293,48 @@ class Receta:
             text_rect = texto_boton.get_rect(center=rect.center)
             surface.blit(texto_boton, text_rect)
 
-        # Botón de agregar
+        # Botón principal (adapta el texto según la vista)
         color_agregar = self.color_boton_agregar_hover if self.agregar_hover else self.color_boton_agregar
         pygame.draw.rect(surface, color_agregar, self.boton_agregar_rect, border_radius=8)
-        texto_agregar = "Nueva Receta" if self.opcion_seleccionada == "CREAR" else "Guardar Cambios" if self.opcion_seleccionada == "EDITAR" else "Ver Detalles"
+        
+        if self.opcion_seleccionada == "CREAR":
+            texto_agregar = "Nueva Receta"
+        elif self.opcion_seleccionada == "EDITAR":
+            texto_agregar = "Guardar Cambios"
+        else:  # VER
+            texto_agregar = "Ver Detalles"
+            
         texto_agregar_render = self.fuente_boton.render(texto_agregar, True, (255, 255, 255))
         text_rect_agregar = texto_agregar_render.get_rect(center=self.boton_agregar_rect.center)
         surface.blit(texto_agregar_render, text_rect_agregar)
 
-        # Tabla
+        # Tabla de recetas
         tabla_x = self.x + int(self.ancho * 0.03)
         tabla_y = self.y + int(self.alto * 0.23)
         tabla_width = int(self.ancho * 0.94)
         tabla_row_height = int(self.alto * 0.07)
         self.dibujar_tabla(surface, tabla_x, tabla_y, tabla_width, tabla_row_height, self.datos_tabla)
         
-        # Mensaje de alerta
+        # Mensaje de alerta temporal
         if self.mensaje_alerta and pygame.time.get_ticks() < self.tiempo_alerta:
             self.dibujar_alerta(surface)
             
-        # Formulario si está activo
+        # Formularios si están activos
         if self.mostrando_formulario:
             self.dibujar_formulario(surface)
             
-        # Formulario de materias primas si está activo
         if self.mostrando_form_materiaprima:
             self.dibujar_form_materiaprima(surface)
 
     def dibujar_campo_busqueda(self, surface, x, y, w, h):
+        """
+        Dibuja el campo de búsqueda de recetas
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+            x, y (int): Posición del campo
+            w, h (int): Dimensiones del campo
+        """
         color_fondo = (255, 255, 255)
         color_borde = (100, 100, 100) if self.busqueda_activa else (180, 180, 180)
         pygame.draw.rect(surface, color_fondo, (x, y, w, h), border_radius=10)
@@ -217,6 +345,12 @@ class Receta:
         surface.blit(render, (x + 10, y + (h - render.get_height()) // 2))
         
     def dibujar_alerta(self, surface):
+        """
+        Dibuja un mensaje de alerta temporal
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+        """
         alerta_w = int(self.ancho * 0.4)
         alerta_h = int(self.alto * 0.08)
         alerta_x = self.x + (self.ancho - alerta_w) // 2
@@ -230,6 +364,16 @@ class Receta:
         surface.blit(texto, (alerta_x + (alerta_w - texto.get_width()) // 2, alerta_y + (alerta_h - texto.get_height()) // 2))
 
     def dibujar_tabla(self, surface, x, y, width, row_height, datos):
+        """
+        Dibuja la tabla de recetas con formato adaptativo
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+            x, y (int): Posición de la tabla
+            width (int): Ancho total de la tabla
+            row_height (int): Altura de cada fila
+            datos (list): Lista de recetas a mostrar
+        """
         # Definir columnas
         columnas = ["ID", "Nombre", "Tiempo Prep.", "Descripción", "Porciones", "# Ingredientes"]
         col_widths = [
@@ -247,17 +391,19 @@ class Receta:
             surface.blit(texto, text_rect)
             col_x += col_widths[i]
 
-        # Dibujar filas
+        # Dibujar filas de datos
         fila_y = y + row_height
         for fila in datos:
             col_x = x
             keys = ["id", "nombre", "tiempo", "descripcion", "porciones", "num_ingredientes"]
             for i, key in enumerate(keys):
                 valor = fila.get(key, "")
+                
+                # Formatear valores según tipo
                 if key == "tiempo" and valor:
                     valor = f"{valor} min"
                 
-                # Limitar la longitud de la descripción
+                # Limitar texto largo
                 if key == "descripcion" and valor and len(str(valor)) > 35:
                     valor = str(valor)[:35] + "..."
                 
@@ -270,7 +416,14 @@ class Receta:
             fila_y += row_height
 
     def mostrar_formulario(self, receta=None):
-        """Configura el formulario para crear o editar una receta"""
+        """
+        Configura y muestra el formulario de receta
+        
+        Permite crear nueva receta o editar una existente
+        
+        Args:
+            receta (dict, optional): Datos de receta para edición. Defaults to None.
+        """
         self.mostrando_formulario = True
         font = pygame.font.SysFont("Open Sans", int(self.alto * 0.035))
         
@@ -278,7 +431,7 @@ class Receta:
         x = self.x + int(self.ancho * 0.25)
         y = self.y + int(self.alto * 0.18)
         
-        # Definimos campos para crear o editar una receta
+        # Campos del formulario
         labels = [
             "Nombre:", "Tiempo de Preparación (min):", "Porciones:", 
             "Descripción:", "Instrucciones:"
@@ -291,11 +444,11 @@ class Receta:
             lbl = font.render(label, True, (0, 0, 0))
             self.formulario_labels.append((lbl, (x, y + i * int(self.alto * 0.07))))
             
-            # Tamaño de los campos de entrada
+            # Dimensiones del campo
             input_width = int(self.ancho * 0.28)
             input_height = int(self.alto * 0.05)
             
-            # Configuración específica para cada campo
+            # Configuración específica por campo
             if label == "Tiempo de Preparación (min):" or label == "Porciones:":
                 # Campos numéricos
                 valor_default = ""
@@ -315,7 +468,7 @@ class Receta:
                     numeric=True
                 )
             elif label == "Descripción:" or label == "Instrucciones:":
-                # Campos más grandes para textos largos
+                # Campos expandidos para texto largo
                 valor_default = ""
                 if receta:
                     if label == "Descripción:":
@@ -338,7 +491,7 @@ class Receta:
                     font=font
                 )
             else:
-                # Campo estándar para nombre
+                # Campo estándar
                 valor_default = ""
                 if receta and label == "Nombre:":
                     valor_default = receta.get('nombre', '')
@@ -362,12 +515,11 @@ class Receta:
             int(self.alto * 0.06)
         )
         
-        # Posición de los botones guardar/cancelar
+        # Botones de acción
         button_y = y + (len(labels) + 1.5) * int(self.alto * 0.07)
         button_width = int(self.ancho * 0.12)
         button_height = int(self.alto * 0.06)
         
-        # Botones de guardar y cancelar
         self.formulario_btn_guardar = pygame.Rect(
             x + int(self.ancho * 0.05),
             button_y,
@@ -384,7 +536,7 @@ class Receta:
         
         self.formulario_mensaje = ""
         
-        # Cargar materias primas de la receta si es edición
+        # Cargar materias primas si es edición
         if receta:
             self.receta_seleccionada = receta.get('id')
             self.cargar_materiasprimas_receta(self.receta_seleccionada)
@@ -409,6 +561,12 @@ class Receta:
             self.materias_primas_receta = []
 
     def dibujar_formulario(self, surface):
+        """
+        Dibuja el formulario de creación/edición de recetas
+        
+        Args:
+            surface (pygame.Surface): Superficie donde dibujar
+        """
         # Fondo semitransparente
         overlay = pygame.Surface((self.ancho, self.alto), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 150))
@@ -470,6 +628,22 @@ class Receta:
             surface.blit(msg, (msg_x, form_y + form_h - 40))
 
     def dibujar_tabla_materiasprimas(self, surface, x, y, width, height):
+        """
+        Dibuja una tabla que muestra las materias primas asociadas a una receta.
+        
+        Args:
+            surface: Superficie de Pygame donde se dibujará la tabla
+            x (int): Posición horizontal de la tabla
+            y (int): Posición vertical de la tabla  
+            width (int): Ancho de la tabla
+            height (int): Alto de la tabla
+        
+        Features:
+            - Tabla con scroll vertical
+            - Alternancia de colores en filas
+            - Columnas: Nombre, Cantidad, Unidad, Tipo
+            - Flechas de navegación para scroll
+        """
         # Encabezado de la sección
         font_header = pygame.font.SysFont("Open Sans", int(self.alto * 0.04), bold=True)
         header = font_header.render("Materias Primas", True, (50, 50, 120))
@@ -493,12 +667,13 @@ class Receta:
         # Datos de materias primas
         font_data = pygame.font.SysFont("Open Sans", int(self.alto * 0.025))
         row_height = int(self.alto * 0.04)
-        max_rows = int(height / row_height) - 1
+        max_rows = int(height / row_height) - 1  # -1 para el encabezado
         
         # Aplicar scroll a los datos
         start_idx = min(self.tabla_materias_primas_scroll, len(self.materias_primas_receta) - max_rows) if len(self.materias_primas_receta) > max_rows else 0
         end_idx = min(start_idx + max_rows, len(self.materias_primas_receta))
         
+        # Dibujar filas de datos
         for i, materiaprima in enumerate(self.materias_primas_receta[start_idx:end_idx]):
             row_y = y + row_height + i * row_height
             col_x = x + 10
@@ -545,7 +720,15 @@ class Receta:
                 ])
 
     def mostrar_form_materiaprima(self):
-        """Muestra el formulario para agregar una materia prima a la receta"""
+        """
+        Configura y muestra el formulario para agregar una materia prima a la receta.
+        
+        Features:
+            - Campos: Materia Prima, Cantidad (numérico), Unidad
+            - Validación numérica en campo de cantidad
+            - Botones: Agregar y Cancelar
+            - Posicionamiento centrado sobre el formulario principal
+        """
         self.mostrando_form_materiaprima = True
         font = pygame.font.SysFont("Open Sans", int(self.alto * 0.035))
         
@@ -567,8 +750,9 @@ class Receta:
             input_width = int(self.ancho * 0.2)
             input_height = int(self.alto * 0.05)
             
-            # Configuración específica
+            # Configuración específica según el tipo de campo
             if label == "Cantidad:":
+                # Campo numérico para cantidad
                 box = InputBox(
                     x + int(self.ancho * 0.12),
                     y + i * int(self.alto * 0.07),
@@ -579,6 +763,7 @@ class Receta:
                     numeric=True
                 )
             else:
+                # Campo de texto normal
                 box = InputBox(
                     x + int(self.ancho * 0.12),
                     y + i * int(self.alto * 0.07),
@@ -609,6 +794,18 @@ class Receta:
         )
 
     def dibujar_form_materiaprima(self, surface):
+        """
+        Dibuja el formulario para agregar materia prima en pantalla.
+        
+        Args:
+            surface: Superficie de Pygame donde se dibuja el formulario
+        
+        Features:
+            - Fondo semitransparente (overlay)
+            - Ventana modal centrada
+            - Campos de entrada dinámicos
+            - Botones estilizados con bordes redondeados
+        """
         # Fondo semitransparente
         overlay = pygame.Surface((self.ancho, self.alto), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 100))
@@ -664,7 +861,24 @@ class Receta:
         surface.blit(text_cancelar, (cancelar_x, cancelar_y))
 
     def agregar_materiaprima(self):
-        """Agregar una nueva materia prima a la receta actual"""
+        """
+        Agrega una nueva materia prima a la receta actual.
+        
+        Returns:
+            bool: True si la materia prima fue agregada exitosamente, False en caso contrario
+        
+        Features:
+            - Validación de campos obligatorios
+            - Validación numérica para cantidad
+            - Búsqueda de materia prima existente en BD
+            - Creación de nueva materia prima si no existe
+            - Actualización de la tabla de materias primas
+        
+        Validaciones:
+            - Nombre de materia prima requerido
+            - Cantidad requerida y debe ser numérica
+            - Unidad requerida
+        """
         nombre = self.form_materiaprima_boxes[0].get_value().strip()
         cantidad_str = self.form_materiaprima_boxes[1].get_value().strip()
         unidad = self.form_materiaprima_boxes[2].get_value().strip()
@@ -737,7 +951,22 @@ class Receta:
             return False
 
     def guardar_receta(self):
-        """Guardar la receta en la base de datos"""
+        """
+        Guarda la receta actual en la base de datos.
+        
+        Returns:
+            bool: True si la receta fue guardada exitosamente, False en caso contrario
+        
+        Features:
+            - Crear nueva receta o actualizar existente
+            - Validación de campos obligatorios
+            - Validación numérica para tiempo y porciones
+            - Actualización de la tabla de recetas
+        
+        Validaciones:
+            - Nombre de receta requerido
+            - Tiempo de preparación y porciones deben ser numéricos
+        """
         nombre = self.formulario_boxes[0].get_value().strip()
         tiempo_str = self.formulario_boxes[1].get_value().strip()
         porciones_str = self.formulario_boxes[2].get_value().strip()
@@ -793,6 +1022,26 @@ class Receta:
             return False
 
     def handle_event(self, event):
+        """
+        Maneja los eventos de teclado y mouse para la interfaz.
+        
+        Args:
+            event: Evento de Pygame a procesar
+        
+        Features:
+            - Eventos del formulario de materias primas (prioridad alta)
+            - Eventos del formulario principal
+            - Eventos de búsqueda y navegación
+            - Scroll con mouse y flechas
+            - Selección de recetas
+        
+        Gestiona:
+            - Clics en botones (agregar, cancelar, guardar)
+            - Entrada de texto en formularios
+            - Scroll de tablas con rueda del mouse
+            - Búsqueda de recetas
+            - Selección de opciones (CREAR, EDITAR, VER)
+        """
         # Manejar eventos en el formulario de materias primas (tiene prioridad)
         if self.mostrando_form_materiaprima:
             for box in self.form_materiaprima_boxes:

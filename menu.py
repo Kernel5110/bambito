@@ -27,7 +27,7 @@ import login  # Módulo de login para autenticación
 from puntoventa import PuntoVenta  # Clase para punto de venta
 from almacen import almacen  # Clase para gestión de almacén
 from reporte import reporte  # Clase para generación de reportes
-from ajustes import ajustes  # Clase para configuración del sistema
+from ajustes import ajustes  # Clase para configuración del sistema 
 import datetime  # Módulo para timestamps en capturas de pantalla
 from pedido import Pedido  # Clase para gestión de pedidos
 from receta import Receta  # Clase para gestión de recetas
@@ -112,12 +112,12 @@ area_trabajo_ancho = SCREEN_WIDTH - area_trabajo_x
 area_trabajo_alto = SCREEN_HEIGHT - area_trabajo_x
 
 # Instancia de las clases PuntoVenta, almacen, reporte y ajustes
-punto_venta       = PuntoVenta(x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase PuntoVenta.
-almacen_instancia = almacen   (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH)) # Crea una instancia de la clase almacen.
-reporte_instancia = reporte   (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase reporte.
-ajustes_instancia = ajustes   (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase ajustes.
-pedido_instancia =  Pedido    (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))
-receta_instancia =  Receta    (x=int(0.15 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))
+punto_venta       = PuntoVenta(x=int(0.155 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase PuntoVenta.
+almacen_instancia = almacen   (x=int(0.155 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH)) # Crea una instancia de la clase almacen.
+reporte_instancia = reporte   (x=int(0.155 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase reporte.
+ajustes_instancia = ajustes   (x=int(0.155 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))  # Crea una instancia de la clase ajustes.
+pedido_instancia =  Pedido    (x=int(0.155 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))
+receta_instancia =  Receta    (x=int(0.155 * SCREEN_WIDTH), y=int(0.15 * SCREEN_HEIGHT), ancho=SCREEN_WIDTH - int(0.15 * SCREEN_WIDTH), alto=SCREEN_HEIGHT - int(0.15 * SCREEN_WIDTH))
 
 def dibujar_interfaz(nombre_usuario):
     """

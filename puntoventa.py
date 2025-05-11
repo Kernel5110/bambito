@@ -217,6 +217,14 @@ class PuntoVenta:
         self.formulario_labels = []
         self.formulario_btn_guardar = None
         self.formulario_mensaje = ""
+        # Variables para scroll de productos
+        self.scroll_productos = 0
+        self.productos_por_fila = 3
+        self.filas_visibles = 5  # Número de filas visibles
+        
+        # Variables para scroll del ticket
+        self.scroll_ticket = 0
+        self.productos_ticket_visibles = 6  # Número de productos visibles en el ticket
 
     def cargar_productos_desde_db(self):
         """
@@ -308,7 +316,6 @@ class PuntoVenta:
         btn_text = self.fuente_busqueda.render("Agregar producto", True, self.BLANCO)
         surface.blit(btn_text, (btn_x + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
 
-
     def dibujar_producto(self, surface, x, y, producto, imagen):
         """
         Dibuja una tarjeta de producto individual
@@ -387,36 +394,94 @@ class PuntoVenta:
         pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), y + int(0.1 * h)), (x + w - int(0.03 * w), y + int(0.1 * h)), 2)
 
         # Encabezados de la tabla
-        headers = ["Nombre", "Unidades", "Precio"]
+        headers = ["Nombre", "Unidades", "Precio", ""]  # Añadir columna vacía para indicador visual
         header_y = y + int(0.12 * h)
-        col_width = w // len(headers)
+        col_widths = [int(w*0.4), int(w*0.2), int(w*0.3), int(w*0.1)]  # Ajustar anchos
+        col_x = x + int(0.03 * w)
+        
         for i, header in enumerate(headers):
-            header_render = self.fuente_ticket.render(header, True, COLOR_TEXTO)
-            surface.blit(header_render, (x + i * col_width + int(0.03 * col_width), header_y))
+            if header:  # Solo dibujar encabezados no vacíos
+                header_render = self.fuente_ticket.render(header, True, COLOR_TEXTO)
+                surface.blit(header_render, (col_x, header_y))
+            col_x += col_widths[i]
 
         # Línea divisora después de encabezados
         pygame.draw.line(surface, self.BORDE, (x, header_y + int(0.04 * h)), (x + w, header_y + int(0.04 * h)), 2)
 
-        # Productos en formato tabla
-        y_offset = header_y + int(0.06 * h)
-        self.botones_eliminar = []  # Inicializar lista de botones eliminar
-        for producto in self.ticket.productos:
-            nombre_render = self.fuente_ticket.render(producto['nombre'], True, COLOR_TEXTO)
-            unidades_render = self.fuente_ticket.render(str(producto['unidades']), True, COLOR_TEXTO)
-            precio_render = self.fuente_ticket.render(f"${producto['precio'] * producto['unidades']:.2f}", True, COLOR_TEXTO)
-
-            surface.blit(nombre_render, (x + int(0.03 * col_width), y_offset))
-            surface.blit(unidades_render, (x + col_width + int(0.03 * col_width), y_offset))
-            surface.blit(precio_render, (x + 2 * col_width + int(0.03 * col_width), y_offset))
-
-            y_offset += int(0.05 * h)
-
+        # Área de productos con scroll
+        productos_area_y = header_y + int(0.06 * h)
+        productos_area_h = h - int(0.3 * h)  # Espacio para productos
+        
+        # Calcular límites para el scroll del ticket
+        total_productos = len(self.ticket.productos)
+        max_scroll_ticket = max(0, total_productos - self.productos_ticket_visibles)
+        self.scroll_ticket = max(0, min(self.scroll_ticket, max_scroll_ticket))
+        
+        # Guardar referencia para detección de clics
+        self.ticket_productos_rects = []
+        
+        # Dibujar productos visibles
+        y_offset = productos_area_y
+        start_idx = self.scroll_ticket
+        end_idx = min(start_idx + self.productos_ticket_visibles, total_productos)
+        
+        for i in range(start_idx, end_idx):
+            if i < len(self.ticket.productos):
+                producto = self.ticket.productos[i]
+                
+                # Crear rect para cada producto
+                producto_rect = pygame.Rect(x, y_offset, w, int(0.05 * h))
+                self.ticket_productos_rects.append((producto_rect, i))
+                
+                # Fondo alternado
+                if (i - start_idx) % 2 == 0:
+                    pygame.draw.rect(surface, (250, 250, 250), producto_rect)
+                
+                # Dibujar datos del producto
+                col_x = x + int(0.03 * w)
+                
+                # Nombre
+                nombre_render = self.fuente_ticket.render(producto['nombre'], True, COLOR_TEXTO)
+                surface.blit(nombre_render, (col_x, y_offset))
+                col_x += col_widths[0]
+                
+                # Unidades
+                unidades_render = self.fuente_ticket.render(str(producto['unidades']), True, COLOR_TEXTO)
+                surface.blit(unidades_render, (col_x, y_offset))
+                col_x += col_widths[1]
+                
+                # Precio
+                precio_render = self.fuente_ticket.render(f"${producto['precio'] * producto['unidades']:.2f}", True, COLOR_TEXTO)
+                surface.blit(precio_render, (col_x, y_offset))
+                col_x += col_widths[2]
+                
+                # Indicador de clic derecho
+                hint_text = self.fuente_producto.render("❌", True, (200, 0, 0))
+                surface.blit(hint_text, (col_x, y_offset + 5))
+                
+                y_offset += int(0.05 * h)
+        
+        # Indicador de scroll para ticket
+        if max_scroll_ticket > 0:
+            scroll_x = x + w - 15
+            scroll_y = productos_area_y
+            scroll_h = productos_area_h - int(0.1 * h)
+            
+            # Barra de fondo
+            pygame.draw.rect(surface, (200, 200, 200), (scroll_x, scroll_y, 10, scroll_h))
+            
+            # Barra de scroll
+            bar_height = int(scroll_h * self.productos_ticket_visibles / total_productos)
+            bar_y = scroll_y + int(scroll_h * self.scroll_ticket / max_scroll_ticket)
+            pygame.draw.rect(surface, (100, 100, 100), (scroll_x, bar_y, 10, bar_height))
+        
         # Línea divisora antes del total
-        pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), y + h - int(0.14 * h)), (x + w - int(0.03 * w), y + h - int(0.14 * h)), 2)
+        total_y = y + h - int(0.14 * h)
+        pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), total_y), (x + w - int(0.03 * w), total_y), 2)
 
         # Total sin IVA
         total_text = self.fuente_ticket.render(f"Total: ${self.ticket.calcular_total():.2f}", True, COLOR_TEXTO)
-        surface.blit(total_text, (x + int(0.05 * w), y + h - int(0.11 * h)))
+        surface.blit(total_text, (x + int(0.05 * w), total_y + 5))
 
         # Total con IVA
         total_iva = self.calcular_total_con_iva()
@@ -551,7 +616,7 @@ class PuntoVenta:
         Args:
             surface (pygame.Surface): Superficie donde dibujar
         """
-        modal_w, modal_h = int(0.35 * self.ancho), int(0.45 * self.alto)
+        modal_w, modal_h = int(0.35 * self.ancho), int(0.55 * self.alto)
         modal_x = self.x + (self.ancho - modal_w) // 2
         modal_y = self.y + (self.alto - modal_h) // 2
         modal_rect = pygame.Rect(modal_x, modal_y, modal_w, modal_h)
@@ -607,7 +672,7 @@ class PuntoVenta:
 
         # Botones confirmar y cancelar
         btn_w, btn_h = 120, 50
-        btn_y = modal_y + modal_h - btn_h - 25
+        btn_y = modal_y + modal_h - btn_h - 70  # Ajustado para acomodar el nuevo botón
         btn_x_confirmar = modal_x + modal_w - btn_w - 40
         btn_x_cancelar = modal_x + 40
 
@@ -623,6 +688,19 @@ class PuntoVenta:
         pygame.draw.rect(surface, (180, 0, 0), self.boton_modal_cancelar_pago, 2, border_radius=8)
         btn_text_canc = font_btn.render("Cancelar", True, self.BLANCO)
         surface.blit(btn_text_canc, (btn_x_cancelar + (btn_w - btn_text_canc.get_width()) // 2, btn_y + (btn_h - btn_text_canc.get_height()) // 2))
+
+        # Botón de pago con tarjeta - NUEVO
+        btn_tarjeta_w = 280
+        btn_tarjeta_h = 50
+        btn_tarjeta_x = modal_x + (modal_w - btn_tarjeta_w) // 2
+        btn_tarjeta_y = modal_y + modal_h - btn_tarjeta_h - 15
+        
+        self.boton_pago_tarjeta = pygame.Rect(btn_tarjeta_x, btn_tarjeta_y, btn_tarjeta_w, btn_tarjeta_h)
+        pygame.draw.rect(surface, (0, 100, 200), self.boton_pago_tarjeta, border_radius=8)
+        pygame.draw.rect(surface, (0, 80, 170), self.boton_pago_tarjeta, 2, border_radius=8)
+        btn_tarjeta_text = font_btn.render("Pagar con Tarjeta", True, self.BLANCO)
+        surface.blit(btn_tarjeta_text, (btn_tarjeta_x + (btn_tarjeta_w - btn_tarjeta_text.get_width()) // 2, 
+                                    btn_tarjeta_y + (btn_tarjeta_h - btn_tarjeta_text.get_height()) // 2))
 
         # Mensaje de error
         if self.efectivo_mensaje:
@@ -703,7 +781,7 @@ class PuntoVenta:
         busq_h = int(0.05 * self.alto)
         self.dibujar_campo_busqueda(surface, busq_x, busq_y, busq_w, busq_h)
         
-        # Catálogo de productos
+        # Catálogo de productos con scroll
         start_x = self.x + int(0.02 * self.ancho)
         start_y = self.y + int(0.15 * self.alto)
         spacing_x = int(0.19 * self.ancho)
@@ -712,14 +790,40 @@ class PuntoVenta:
         self.product_rects = []
         productos_filtrados = self.filtrar_productos()
         
-        for idx, (i_original, producto) in enumerate(productos_filtrados):
-            col = idx % cols
-            row = idx // cols
-            x = start_x + col * spacing_x
-            y = start_y + row * spacing_y
-            imagen = self.imagenes_productos[i_original]
-            rect = self.dibujar_producto(surface, x, y, producto, imagen)
-            self.product_rects.append((rect, i_original))
+        # Calcular límites para el scroll
+        total_filas = (len(productos_filtrados) + cols - 1) // cols
+        max_scroll = max(0, total_filas - self.filas_visibles)
+        self.scroll_productos = max(0, min(self.scroll_productos, max_scroll))
+        
+        # Dibujar solo los productos visibles
+        start_idx = self.scroll_productos * cols
+        end_idx = min(start_idx + self.filas_visibles * cols, len(productos_filtrados))
+        
+        for idx in range(start_idx, end_idx):
+            if idx < len(productos_filtrados):
+                i_original, producto = productos_filtrados[idx]
+                col = (idx - start_idx) % cols
+                row = (idx - start_idx) // cols
+                x = start_x + col * spacing_x
+                y = start_y + row * spacing_y
+                imagen = self.imagenes_productos[i_original]
+                rect = self.dibujar_producto(surface, x, y, producto, imagen)
+                self.product_rects.append((rect, i_original))
+        
+        # Indicador de scroll para productos
+        if max_scroll > 0:
+            # Área del scroll
+            scroll_x = self.x + int(0.59 * self.ancho)
+            scroll_y = start_y
+            scroll_h = self.filas_visibles * spacing_y
+            
+            # Barra de fondo
+            pygame.draw.rect(surface, (200, 200, 200), (scroll_x, scroll_y, 10, scroll_h))
+            
+            # Barra de scroll
+            bar_height = int(scroll_h * self.filas_visibles / total_filas)
+            bar_y = scroll_y + int(scroll_h * self.scroll_productos / max_scroll)
+            pygame.draw.rect(surface, (100, 100, 100), (scroll_x, bar_y, 10, bar_height))
         
         # Ticket de venta
         self.dibujar_ticket(surface)
@@ -734,6 +838,31 @@ class PuntoVenta:
             self.dibujar_modal_correo(surface)
         if self.mostrando_modal_pago:
             self.dibujar_modal_pago(surface)
+        # Dibujar ventana de pago con tarjeta si está activa
+        if getattr(self, "mostrando_pago_tarjeta", False):
+            if hasattr(self, 'pago_tarjeta_instance'):
+                self.pago_tarjeta_instance.dibujar(surface)
+                
+                # Manejar eventos
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        return
+                    
+                    resultado = self.pago_tarjeta_instance.handle_event(event)
+                    if resultado == "completado":
+                        # Pago exitoso, registrar venta
+                        exito = self.registrar_venta()
+                        if exito:
+                            self.ticket.guardar_pdf("ticket.pdf")
+                            self.mostrar_alerta("Pago aprobado. Venta registrada.")
+                            self.productos = self.cargar_productos_desde_db()
+                            self.mostrando_modal_pago = False
+                            self.mostrando_pago_tarjeta = False
+                        else:
+                            self.mostrar_alerta("Error al registrar la venta.")
+                    elif resultado == "cancelar":
+                        # Cancelar y volver al modal de pago
+                        self.mostrando_pago_tarjeta = False
 
     def handle_event(self, event):
         """
@@ -742,6 +871,30 @@ class PuntoVenta:
         Args:
             event (pygame.event.Event): Evento de Pygame
         """
+        # Manejo de scroll con rueda del mouse
+        if event.type == pygame.MOUSEWHEEL:
+            mouse_pos = pygame.mouse.get_pos()
+            
+            # Scroll en el panel de productos
+            if (self.x + int(0.02 * self.ancho) <= mouse_pos[0] <= self.x + int(0.6 * self.ancho) and
+                self.y + int(0.15 * self.alto) <= mouse_pos[1] <= self.y + int(0.9 * self.alto)):
+                if event.y > 0:  # Scroll arriba
+                    self.scroll_productos = max(0, self.scroll_productos - 1)
+                else:  # Scroll abajo
+                    productos_filtrados = self.filtrar_productos()
+                    total_filas = (len(productos_filtrados) + 2) // 3
+                    max_scroll = max(0, total_filas - self.filas_visibles)
+                    self.scroll_productos = min(max_scroll, self.scroll_productos + 1)
+            
+            # Scroll en el ticket
+            elif (self.x + int(0.65 * self.ancho) <= mouse_pos[0] <= self.x + int(0.98 * self.ancho) and
+                self.y + int(0.15 * self.alto) <= mouse_pos[1] <= self.y + int(0.8 * self.alto)):
+                if event.y > 0:  # Scroll arriba
+                    self.scroll_ticket = max(0, self.scroll_ticket - 1)
+                else:  # Scroll abajo
+                    max_scroll = max(0, len(self.ticket.productos) - self.productos_ticket_visibles)
+                    self.scroll_ticket = min(max_scroll, self.scroll_ticket + 1)
+
         # Eventos del modal de pago
         if self.mostrando_modal_pago:
             self.efectivo_box.handle_event(event)
@@ -771,7 +924,27 @@ class PuntoVenta:
                     self.mostrando_modal_pago = False
                     self.efectivo_box = None
                     self.efectivo_mensaje = ""
+                elif self.boton_pago_tarjeta.collidepoint(event.pos):  # NUEVO
+                    # Pagar con tarjeta
+                    total_iva = self.calcular_total_con_iva()
+                    self.procesar_pago_tarjeta(total_iva)
             return
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            # Clic derecho para eliminar productos del ticket
+            if event.button == 3:  # Botón derecho
+                if hasattr(self, 'ticket_productos_rects'):
+                    for rect, idx in self.ticket_productos_rects:
+                        if rect.collidepoint(event.pos):
+                            if 0 <= idx < len(self.ticket.productos):
+                                producto_eliminado = self.ticket.productos[idx]
+                                # Eliminar producto del ticket
+                                self.ticket.eliminar_producto(idx)
+                                self.mostrar_alerta(f"Producto '{producto_eliminado['nombre']}' eliminado del ticket")
+                                # Ajustar scroll si es necesario
+                                max_scroll = max(0, len(self.ticket.productos) - self.productos_ticket_visibles)
+                                self.scroll_ticket = min(self.scroll_ticket, max_scroll)
+                            break
 
         # Eventos del modal de correo
         if getattr(self, "mostrando_modal_correo", False):
@@ -826,10 +999,10 @@ class PuntoVenta:
                 try:
                     from factura import Factura
                     import asyncio
-                    factura = Factura()
+                    # Crear una instancia de factura 
+                    factura = Factura(self.x, self.y, self.ancho, self.alto) 
                     # Integración con sistema de facturación
                     asyncio.run(factura.main())
-                    self.mostrar_alerta("Factura generada correctamente.")
                 except Exception as e:
                     self.mostrar_alerta(f"Error al generar factura: {e}")
                 return
@@ -1146,3 +1319,23 @@ class PuntoVenta:
         except Exception as e:
             print(f"Error al enviar correo: {e}")
             return False
+        
+    def procesar_pago_tarjeta(self, total):
+        """
+        Procesa el pago con tarjeta usando la terminal MercadoPago
+        
+        Args:
+            total (float): Total a cobrar
+        """
+        try:
+            from pagotarjeta import PagoTarjeta
+            
+            # Crear y mostrar la ventana de pago con tarjeta
+            pago_tarjeta = PagoTarjeta(self.x, self.y, self.ancho, self.alto, total)
+            
+            # Esperar a que el usuario complete el pago
+            self.mostrando_pago_tarjeta = True
+            self.pago_tarjeta_instance = pago_tarjeta
+            
+        except Exception as e:
+            self.mostrar_alerta(f"Error al procesar pago con tarjeta: {e}")

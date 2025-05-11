@@ -5,16 +5,29 @@ from decimal import Decimal
 
 class Ticket:
     def __init__(self, nombre_panaderia="Panadería Bambi"):
+        """
+        Inicializa una instancia de la clase Ticket.
+
+        :param nombre_panaderia: Nombre de la panadería. Por defecto es "Panadería Bambi".
+        """
         self.nombre_panaderia = nombre_panaderia
         self.fecha = datetime.now()
-        self.productos = []  # Cada producto: {"nombre":..., "unidades":..., "precio":...}
+        self.productos = []  # Lista de productos, cada uno es un diccionario: {"nombre":..., "unidades":..., "precio":..., "id":...}
         self.pie_pagina = "¡Gracias por su compra!"
-    
+
     def agregar_producto(self, nombre, unidades, precio, id_producto):
+        """
+        Agrega un producto al ticket. Si el producto ya existe, suma las unidades.
+
+        :param nombre: Nombre del producto.
+        :param unidades: Número de unidades del producto.
+        :param precio: Precio unitario del producto.
+        :param id_producto: Identificador único del producto.
+        """
         # Convertir valores a tipos nativos para evitar problemas con Decimal
         unidades = int(unidades)
         precio = float(precio) if not isinstance(precio, Decimal) else float(precio)
-        
+
         # Si el producto ya está, suma unidades
         for prod in self.productos:
             if prod["nombre"] == nombre and prod["precio"] == precio and prod["id"] == id_producto:
@@ -23,6 +36,11 @@ class Ticket:
         self.productos.append({"nombre": nombre, "unidades": unidades, "precio": precio, "id": id_producto})
 
     def calcular_total(self):
+        """
+        Calcula el total del ticket sumando el subtotal de cada producto.
+
+        :return: Total del ticket.
+        """
         total = 0
         for prod in self.productos:
             # Asegurar que las operaciones sean entre tipos compatibles
@@ -30,14 +48,27 @@ class Ticket:
             unidades = int(prod["unidades"])
             total += unidades * precio
         return total
-    
+
     def limpiar(self):
-        self.productos.clear()
-    
-    def eliminar_producto(self, nombre):
+        """
+        Limpia la lista de productos del ticket.
+        """
         self.productos.clear()
 
+    def eliminar_producto(self, nombre):
+        """
+        Elimina un producto del ticket por su nombre.
+
+        :param nombre: Nombre del producto a eliminar.
+        """
+        self.productos = [prod for prod in self.productos if prod["nombre"] != nombre]
+
     def guardar_pdf(self, ruta):
+        """
+        Guarda el ticket como un archivo PDF en la ruta especificada.
+
+        :param ruta: Ruta donde se guardará el archivo PDF.
+        """
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("helvetica", "B", 18)
@@ -86,6 +117,19 @@ class Ticket:
         self.limpiar()
 
     def dibujar(self, surface, x, y, w, h, fuente_titulo, fuente_producto, fuente_ticket, colores):
+        """
+        Dibuja el ticket en una superficie de Pygame.
+
+        :param surface: Superficie de Pygame donde se dibujará el ticket.
+        :param x: Coordenada x de la posición inicial.
+        :param y: Coordenada y de la posición inicial.
+        :param w: Ancho del área de dibujo.
+        :param h: Alto del área de dibujo.
+        :param fuente_titulo: Fuente para el título.
+        :param fuente_producto: Fuente para los nombres de los productos.
+        :param fuente_ticket: Fuente para el resto del texto.
+        :param colores: Diccionario con colores para el fondo, borde y texto.
+        """
         # colores: dict con claves "fondo", "borde", "texto"
         pygame.draw.rect(surface, colores["fondo"], (x, y, w, h), border_radius=20)
         pygame.draw.rect(surface, colores["borde"], (x, y, w, h), width=2, border_radius=20)
@@ -113,14 +157,14 @@ class Ticket:
         for prod in self.productos:
             nombre = fuente_ticket.render(prod["nombre"], True, colores["texto"])
             unidades = fuente_ticket.render(str(prod["unidades"]), True, colores["texto"])
-            
+
             # Convertir a float para asegurar compatibilidad
             precio_valor = float(prod["precio"])
             unidades_valor = int(prod["unidades"])
-            
+
             precio = fuente_ticket.render(f"${precio_valor:.2f}", True, colores["texto"])
             subtotal = fuente_ticket.render(f"${unidades_valor * precio_valor:.2f}", True, colores["texto"])
-            
+
             surface.blit(nombre, (col_xs[0], row_y))
             surface.blit(unidades, (col_xs[1], row_y))
             surface.blit(precio, (col_xs[2], row_y))
@@ -135,3 +179,18 @@ class Ticket:
         # Pie de página
         pie = fuente_ticket.render(self.pie_pagina, True, colores["texto"])
         surface.blit(pie, (x + 30, y + h - 50))
+        
+    def eliminar_producto(self, indice):
+        """
+        Elimina un producto del ticket por su índice
+        
+        Args:
+            indice (int): Índice del producto a eliminar
+        
+        Returns:
+            bool: True si el producto fue eliminado, False si no existe
+        """
+        if 0 <= indice < len(self.productos):
+            self.productos.pop(indice)
+            return True
+        return False

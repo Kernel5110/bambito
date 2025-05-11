@@ -106,7 +106,7 @@ class InputBox:
         self.text = value
         self.txt_surface = self.font.render(self.text, True, (0, 0, 0))
 
-
+class ajustes:
     def __init__(self, x=320, y=250, ancho=1555, alto=710):
         """
         Inicializa el sistema de ajustes
