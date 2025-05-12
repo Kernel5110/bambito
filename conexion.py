@@ -11,9 +11,21 @@ Incluye métodos para:
 - Manejo automático de conexiones
 """
 
+import os
+import sys
+import json
 import mysql.connector
 from mysql.connector import Error
 
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS2
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+JSON_FILE = resource_path("credentials.json")
 
 class Conexion:
     """
@@ -31,7 +43,7 @@ class Conexion:
         cursor: Cursor para ejecutar comandos SQL
     """
     
-    def __init__(self, host='localhost', user='root', password='12345', database='panaderiaBambiDB'):
+    def __init__(self, host='localhost', user='root', password='12345', database='panaderiaBambiDB', port='3036'):
         """
         Inicializa la configuración de conexión
         
@@ -41,10 +53,31 @@ class Conexion:
             password (str, optional): Contraseña del usuario. Defaults to '12345'.
             database (str, optional): Nombre de la base de datos. Defaults to 'panaderiaBambiDB'.
         """
-        self.host = host
-        self.user = user
-        self.password = password
-        self.database = database
+        try:
+            with open(JSON_FILE, "r") as f:
+                d = json.load(f)
+                self.host = d['host']
+                self.user = d['user']
+                self.password = d['password']
+                self.database = d['database']
+                self.port = d['port']
+        except (FileNotFoundError, KeyError):
+            self.host = host
+            self.user = user
+            self.password = password
+            self.database = database
+            self.port = port
+
+            d = {
+                'host': host,
+                'user': user,
+                'password': password,
+                'database': database,
+                'port': port
+            }
+            with open(JSON_FILE, "w") as f:
+                json.dump(d, f, indent=4)
+
         self.conn = None
         self.cursor = None
 

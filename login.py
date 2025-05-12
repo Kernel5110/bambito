@@ -25,6 +25,7 @@ import os  # Importa el módulo os para manejar rutas de archivos y directorios.
 import datetime  # Importa el módulo datetime para manejar fechas y horas.
 from password_reset import mostrar_formulario_cambio_contrasena
 from icecream import ic
+from conexion import resource_path
 
 # Importa la conexión MySQL desde el archivo 'conexion.py' en el directorio 'db'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'db')))
@@ -81,7 +82,7 @@ def fuente_x():
 
 # Cargar logo
 try:
-    logo = pygame.image.load("imagenes/log.png")  # Intenta cargar la imagen del logo.
+    logo = pygame.image.load(resource_path("imagenes/log.png"))  # Intenta cargar la imagen del logo.
     logo_size = int(SCREEN_HEIGHT * 0.20)  # Tamaño del logo en relación a la altura de la pantalla.
     logo = pygame.transform.scale(logo, (logo_size, logo_size))  # Redimensiona el logo.
 except:
@@ -200,6 +201,8 @@ def verificar_login():
 
     conexion = Conexion()
     try:
+        # inicializacion de `user`
+        user = None
         # encontrar al empleado 
         query = """
             SELECT Id_Empleado, Nombre_emple FROM Empleado

@@ -15,6 +15,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog
 from receta import Conexion
+from conexion import resource_path
 
 class InputBox:
     """
@@ -157,7 +158,7 @@ class ajustes:
             "direccion": "Calle Ejemplo 123, Centro",
             "telefono": "5551234567",
             "email": "contacto@bambi.com",
-            "logo_path": "imagenes/log.png"
+            "logo_path": resource_path("imagenes/log.png")
         }
         
         # Cargar logo

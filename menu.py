@@ -348,5 +348,5 @@ def main(nombre_usuario, puesto):
 
 
 if __name__ == '__main__':
-     # Modo debug - iniciar directamente como gerente
+    # Modo debug - iniciar directamente como gerente
     main('Bernardo', 'GERENTE')

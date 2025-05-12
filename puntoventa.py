@@ -18,6 +18,7 @@ Versión: 1.0
 import pygame
 import os
 from ticket import Ticket
+from conexion import resource_path
 from receta import Conexion
 import smtplib
 from email.message import EmailMessage
@@ -189,7 +190,7 @@ class PuntoVenta:
         self.productos = self.cargar_productos_desde_db()
         self.imagenes_productos = []
         for prod in self.productos:
-            ruta = prod["imagen"]
+            ruta = resource_path(prod["imagen"])
             if ruta and os.path.exists(ruta):
                 imagen = pygame.image.load(ruta).convert_alpha()
                 imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
