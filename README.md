@@ -36,3 +36,50 @@ Este módulo permite configurar aspectos esenciales de la aplicación, como camb
 - requests
 - reportlab
 - fpdf
+
+### **Instrucciones**
+
+Pasos para la instalación y configuración del sistema `Bambi`
+
+1. Descargar y abrir el archivo `panaderia_bambi_setup_windows11x64.exe` desde el link https://drive.google.com/file/d/1eaWK9pXXa9HXEWdlMy4O2tEx_pcZNcWC/view?usp=drive_link, es el instalador del sistema.
+
+2. Aceptar ejecutar como administrador.
+
+3. Marcar “Crear un acceso directo en el escritorio y dar siguiente”.
+
+4. Indicar la ruta de instalación del sistema Bambi.
+
+5. Presionar instalar.
+
+6. Descargar el archivo bambi_dump.sql en el repositorio de Git Hub en la rama main desde la carpeta `db` en https://github.com/Kernel5110/bambito/tree/main/db.
+
+7. Crear una base de datos llamada `bambi_db` en workbench (MySQL 8.0.) y cargar el script `bambi_dump.sql` en esa nueva base de datos.
+
+```sql
+use bambi_db
+-- contenido de bambi_dump.sql...
+```
+
+8. En la ruta de instalación del sistema, por ejemplo `C:\Program Files\PanaderiaBambi`, abrir el archivo `credentials.json` e ingresar en el las credenciales de la base de datos previamente cargada ya sea usuario, base de datos, host, puerto y contraseña.
+
+```json
+{
+  "host": "localhost",
+  "user": "tu usuario",
+  "password": "tu contraseña",
+  "database": "bambi_db",
+  "port": "tu puerto (generalmente 3036)"
+}
+```
+
+9. Abrir el sistema Panaderia Bambi.
+
+10. Ingresar la contraseña correcta.
+
+11. Verificar que no haya espacios en blanco al inicio o final de los campos.
+
+12. Pulsar el botón `Sign In`.
+
+13. Esperar mientras el sistema valide las credenciales.
+
+14. Observar la transición al menú principal
