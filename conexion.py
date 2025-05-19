@@ -99,7 +99,8 @@ class Conexion:
                 host=self.host,
                 user=self.user,
                 password=self.password,
-                database=self.database
+                database=self.database,
+                port=self.port
             )
             if self.conn.is_connected():
                 # Usar cursor con dictionary=True para obtener resultados como diccionarios

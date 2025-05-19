@@ -191,6 +191,7 @@ class PuntoVenta:
         self.imagenes_productos = []
         for prod in self.productos:
             ruta = resource_path(prod["imagen"])
+            print(ruta)
             if ruta and os.path.exists(ruta):
                 imagen = pygame.image.load(ruta).convert_alpha()
                 imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
