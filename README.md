@@ -41,7 +41,7 @@ Este módulo permite configurar aspectos esenciales de la aplicación, como camb
 
 Pasos para la instalación y configuración del sistema `Bambi`
 
-1. Descargar y abrir el archivo `panaderia_bambi_setup_windows11x64.exe` desde el link https://drive.google.com/file/d/1eaWK9pXXa9HXEWdlMy4O2tEx_pcZNcWC/view?usp=drive_link, es el instalador del sistema.
+1. Descargar y abrir el archivo `panaderia_bambi_setup_windows11x64.exe` desde el link https://drive.google.com/file/d/1iqZesmFszvtMm0zNiWc2UDCtfBuiMhzd/view?usp=sharing, es el instalador del sistema.
 
 2. Aceptar ejecutar como administrador.
 
