@@ -544,7 +544,7 @@ class Pedido:
 
         # Ventana del formulario - tamaño ajustado
         form_w = int(self.ancho * 0.5)
-        form_h = int(self.alto * 0.7)  # Más alto para acomodar todos los campos
+        form_h = int(self.alto * 0.8)  # Más alto para acomodar todos los campos
         form_x = self.x + (self.ancho - form_w) // 2
         form_y = self.y + (self.alto - form_h) // 2
         

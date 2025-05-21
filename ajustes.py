@@ -5,6 +5,7 @@ from tkinter import filedialog
 from receta import Conexion
 from conexion import resource_path
 import datetime
+import re
 
 class InputBox:
     """
@@ -537,6 +538,120 @@ class ajustes:
             msg = font_msg.render(self.formulario_empleado_mensaje, True, (200, 0, 0))
             surface.blit(msg, (modal_x + 30, self.formulario_empleado_btn_guardar.y + 60))
 
+    def guardar_nuevo_empleado(self):
+        """
+        Valida y guarda un nuevo empleado en la base de datos
+        
+        Validaciones:
+        - Campos obligatorios
+        - Formatos válidos para CURP, RFC, NSS
+        - Validación de correo electrónico
+        - Formato de teléfono
+        """
+        # Obtener todos los valores de los campos del formulario
+        valores = [box.get_value().strip() for box in self.formulario_empleado_boxes]
+        
+        # Verificar que todos los campos obligatorios estén llenos
+        campos_obligatorios = [
+            'Nombre', 'Apellido Paterno', 'Apellido Materno', 'CURP', 'Sexo', 
+            'RFC', 'NSS', 'Correo', 'Teléfono', 'Calle', 'Colonia', 'Código Postal',
+            'Puesto', 'Contraseña'
+        ]
+        
+        # Asumiendo que el orden de los valores coincide con los campos obligatorios
+        for i, campo in enumerate(campos_obligatorios):
+            if i < len(valores) and not valores[i]:
+                self.formulario_empleado_mensaje = f"El campo {campo} es obligatorio."
+                return
+        
+        # Desempaquetar los valores para mayor claridad
+        # Ajusta según el orden real de tus campos en el formulario
+        nombre = valores[0]
+        ap_paterno = valores[1]
+        ap_materno = valores[2]
+        curp = valores[3]
+        sexo = valores[4]
+        rfc = valores[5]
+        nss = valores[6]
+        correo = valores[7]
+        telefono = valores[8]
+        padecimientos = valores[9]
+        calle = valores[10]
+        colonia = valores[11]
+        cp = valores[12]
+        puesto = valores[13]
+        fecha_contratacion = valores[14] if len(valores) > 14 else datetime.now().strftime('%Y-%m-%d')
+        contrasena = valores[15] if len(valores) > 15 else ""
+        
+        # Validar formatos
+        
+        # Validar CURP (18 caracteres)
+        if len(curp) != 18:
+            self.formulario_empleado_mensaje = "La CURP debe tener 18 caracteres."
+            return
+        
+        # Validar RFC (12-13 caracteres)
+        if len(rfc) not in (12, 13):
+            self.formulario_empleado_mensaje = "El RFC debe tener 14 caracteres."
+            return
+        
+        # Validar sexo (M o F)
+        if sexo not in ['M', 'F']:
+            self.formulario_empleado_mensaje = "El sexo debe ser 'M' o 'F'."
+            return
+        
+        # Validar correo electrónico
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", correo):
+            self.formulario_empleado_mensaje = "El formato del correo es inválido."
+            return
+        
+        # Validar teléfono y código postal como números
+        try:
+            telefono_num = int(telefono)
+            cp_num = int(cp)
+            nss_num = int(nss)
+        except ValueError:
+            self.formulario_empleado_mensaje = "Teléfono, NSS y Código Postal deben ser números."
+            return
+        
+        # Insertar en la base de datos
+        try:
+            conexion = Conexion()
+            insert = """
+                INSERT INTO empleado (
+                    Nombre_emple, Ap_Paterno_emple, Ap_Materno_emple, CURP_emple, 
+                    Sexo, RFC_emple, NSS, Correo_Electronico, Telefono_emple, 
+                    Padecimientos, Calle, Colonia, Cod_Postal, stoPuesto, 
+                    Estado_emple, Contrasena_emple
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+            """
+            conexion.conectar()
+            conexion.cursor.execute(insert, (
+                nombre, ap_paterno, ap_materno, curp, sexo, rfc, nss_num, 
+                correo, telefono_num, padecimientos, calle, colonia, cp_num, 
+                puesto, 'Activo', contrasena
+            ))
+            conexion.conn.commit()
+            self.formulario_empleado_mensaje = f"Empleado '{nombre} {ap_paterno}' agregado correctamente."
+            
+            # Actualizar lista de empleados si existe un método para ello
+            if hasattr(self, 'cargar_empleados') and callable(getattr(self, 'cargar_empleados')):
+                self.cargar_empleados()
+                
+            # Cerrar formulario
+            self.mostrando_formulario_empleado = False
+        except Exception as e:
+            # Capturar y mostrar error detallado
+            import traceback
+            error_detalle = traceback.format_exc()
+            print(f"Error al guardar empleado: {str(e)}")
+            print(error_detalle)
+            self.formulario_empleado_mensaje = f"Error al guardar: {str(e)}"
+        finally:
+            conexion.cerrar()
+
     def guardar_nuevo_cliente(self):
         """
         Valida y guarda un nuevo cliente en la base de datos
@@ -545,47 +660,57 @@ class ajustes:
         - Todos los campos son obligatorios
         - Teléfono y CP deben ser números
         - RFC debe ser válido
-        - Fecha de nacimiento debe ser válida
         """
         valores = [box.get_value().strip() for box in self.formulario_cliente_boxes]
         if not all(valores):
             self.formulario_cliente_mensaje = "Todos los campos son obligatorios."
             return
 
-        nombre, ap_paterno, ap_materno, telefono, correo, rfc, calle, colonia, cp, fecha_nacimiento = valores
+        # Eliminamos la fecha_nacimiento ya que no existe en la BD
+        nombre, ap_paterno, ap_materno, telefono, correo, rfc, calle, colonia, cp = valores
 
+        # Validar datos numéricos
         try:
             telefono = int(telefono)
             cp = int(cp)
-        except Exception:
-            self.formulario_cliente_mensaje = "Teléfono o CP inválido."
+        except ValueError:
+            self.formulario_cliente_mensaje = "Teléfono o CP deben ser números enteros."
             return
 
-        # Validar RFC
-        rfc_valido, mensaje = self.validar_rfc(rfc, fecha_nacimiento)
+        # Validar RFC (ajustamos para que no dependa de la fecha de nacimiento)
+        rfc_valido, mensaje = self.validar_rfc(rfc)
         if not rfc_valido:
             self.formulario_cliente_mensaje = mensaje
             return
 
-        # Validar fecha de nacimiento
-        fecha_valida, mensaje = self.validar_fecha_nacimiento(fecha_nacimiento)
-        if not fecha_valida:
-            self.formulario_cliente_mensaje = mensaje
-            return
+        # Ya no validamos la fecha de nacimiento
 
-        # Insertar en base de datos
-        conexion = Conexion()
-        insert = """
-            INSERT INTO Cliente (Nombre_Cliente_cliente, Ap_Paterno_cliente_cli, Ap_Materno_cleinte_cli, Telefono_cli, Correo, RFC, Calle, Colonia, Cod_Postal, Fecha_Nacimiento, Estado)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Activo')
-        """
-        conexion.conectar()
-        conexion.cursor.execute(insert, (nombre, ap_paterno, ap_materno, telefono, correo, rfc, calle, colonia, cp, fecha_nacimiento))
-        conexion.conn.commit()
-        conexion.cerrar()
-        self.formulario_cliente_mensaje = f"Cliente '{nombre}' agregado."
-        self.cargar_clientes()
-        self.mostrando_formulario_cliente = False
+        try:
+            conexion = Conexion()
+            # Eliminamos Fecha_Nacimiento de la consulta SQL
+            insert = """
+                INSERT INTO Cliente 
+                (Nombre_Cliente_cliente, Ap_Paterno_cliente_cli, Ap_Materno_cliente_cli, 
+                Telefono_cli, Correo, RFC, Calle, Colonia, Cod_Postal, Estado)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'Activo')
+            """
+            conexion.conectar()
+            # Quitamos fecha_nacimiento de los parámetros
+            conexion.cursor.execute(insert, (nombre, ap_paterno, ap_materno, telefono, correo, 
+                                            rfc, calle, colonia, cp))
+            conexion.conn.commit()
+            self.formulario_cliente_mensaje = f"Cliente '{nombre}' agregado correctamente."
+            self.cargar_clientes()
+            self.mostrando_formulario_cliente = False
+        except Exception as e:
+            # Capturar y mostrar error detallado
+            import traceback
+            error_detalle = traceback.format_exc()
+            print(f"Error al guardar cliente: {str(e)}")
+            print(error_detalle)
+            self.formulario_cliente_mensaje = f"Error al guardar: {str(e)}"
+        finally:
+            conexion.cerrar()
 
     def cargar_clientes(self):
         """
@@ -1177,12 +1302,30 @@ class ajustes:
             if fecha_str.count('/') != 2:
                 return False, "Formato debe ser DD/MM/AAAA"
 
-            dia, mes, año = fecha_str.split('/')
+            dia, mes, anio = fecha_str.split('/')
 
-            if len(dia) != 2 or len(mes) != 2 or len(año) != 4:
+            if not (dia.isdigit() and mes.isdigit() and anio.isdigit()):
+                return False, "Día, mes y año deben ser números"
+
+            if len(dia) != 2 or len(mes) != 2 or len(anio) != 4:
                 return False, "Formato debe ser DD/MM/AAAA"
 
-            fecha = datetime.datetime(int(año), int(mes), int(dia))
+            dia_int = int(dia)
+            mes_int = int(mes)
+            anio_int = int(anio)
+
+            # Validar rangos
+            if not (1 <= mes_int <= 12):
+                return False, "El mes debe estar entre 1 y 12"
+
+            # Verificar días según el mes
+            dias_por_mes = [0, 31, 29 if (anio_int % 4 == 0 and anio_int % 100 != 0) or (anio_int % 400 == 0) else 28, 
+                            31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            
+            if not (1 <= dia_int <= dias_por_mes[mes_int]):
+                return False, f"El día debe estar entre 1 y {dias_por_mes[mes_int]} para el mes {mes_int}"
+
+            fecha = datetime.datetime(anio_int, mes_int, dia_int)
 
             # Verificar que la fecha no sea futura
             if fecha > datetime.datetime.now():
@@ -1190,71 +1333,81 @@ class ajustes:
 
             return True, ""
 
-        except ValueError:
-            return False, "Fecha inválida"
+        except ValueError as e:
+            return False, f"Fecha inválida: {str(e)}"
 
-    def validar_rfc(self, rfc, fecha_nacimiento):
+    def validar_rfc(self, rfc, fecha_nacimiento=None):
         """
-        Valida que el RFC tenga el formato correcto y que coincida con la fecha de nacimiento.
+        Valida que el RFC tenga el formato correcto y que coincida con la fecha de nacimiento si se proporciona.
 
         Args:
             rfc (str): RFC a validar
-            fecha_nacimiento (str): Fecha en formato DD/MM/AAAA
+            fecha_nacimiento (str, optional): Fecha en formato DD/MM/AAAA. Defaults to None.
 
         Returns:
             tuple: (bool, str) - Indica si es válido y mensaje de error
         """
         # Verificar longitud
-        if len(rfc) not in [12, 13]:
+        if len(rfc) not in [12, 13]:  
             return False, "El RFC debe tener 12 o 13 caracteres"
 
         # Convertir a mayúsculas
         rfc = rfc.upper()
 
-        # Validar fecha de nacimiento primero
-        fecha_valida, mensaje = self.validar_fecha_nacimiento(fecha_nacimiento)
-        if not fecha_valida:
-            return False, f"Primero valide la fecha de nacimiento: {mensaje}"
+        # Si tenemos fecha de nacimiento, validarla
+        if fecha_nacimiento:
+            fecha_valida, mensaje = self.validar_fecha_nacimiento(fecha_nacimiento)
+            if not fecha_valida:
+                return False, f"Primero valide la fecha de nacimiento: {mensaje}"
 
-        # RFC Persona moral (12 caracteres)
-        if len(rfc) == 12:
-            # Primeros 3 caracteres deben ser letras
-            if not rfc[:3].isalpha():
-                return False, "Los primeros 3 caracteres deben ser letras"
-            # Siguientes 6 caracteres deben ser números (fecha)
-            if not rfc[3:9].isdigit():
-                return False, "Los caracteres 4-9 deben ser dígitos (fecha)"
-            # Últimos 3 caracteres deben ser alfanuméricos
-            if not all(c.isalnum() for c in rfc[9:]):
-                return False, "Los últimos 3 caracteres deben ser alfanuméricos"
+            # Verificar que la fecha del RFC coincida con la fecha de nacimiento
+            try:
+                dia, mes, año = fecha_nacimiento.split('/')
+                año_corto = año[-2:]
+                fecha_esperada = año_corto + mes + dia
 
-            fecha_rfc = rfc[3:9]
+                # RFC Persona moral (13 caracteres)
+                if len(rfc) == 13:
+                    fecha_rfc = rfc[3:9]
+                    
+                    # Primeros 3 caracteres deben ser letras
+                    if not rfc[:3].isalpha():
+                        return False, "Los primeros 3 caracteres deben ser letras"
+                    # Siguientes 6 caracteres deben ser números (fecha)
+                    if not rfc[3:9].isdigit():
+                        return False, "Los caracteres 4-9 deben ser dígitos (fecha)"
+                    # Últimos 4 caracteres deben ser alfanuméricos
+                    if not all(c.isalnum() for c in rfc[9:]):
+                        return False, "Los últimos 3 caracteres deben ser alfanuméricos"
 
-        # RFC Persona física (13 caracteres)
-        elif len(rfc) == 13:
-            # Primeros 4 caracteres deben ser letras
-            if not rfc[:4].isalpha():
-                return False, "Los primeros 4 caracteres deben ser letras"
-            # Siguientes 6 caracteres deben ser números (fecha)
-            if not rfc[4:10].isdigit():
-                return False, "Los caracteres 5-10 deben ser dígitos (fecha)"
-            # Últimos 3 caracteres deben ser alfanuméricos
-            if not all(c.isalnum() for c in rfc[10:]):
-                return False, "Los últimos 3 caracteres deben ser alfanuméricos"
+                # RFC Persona física (14 caracteres)
+                elif len(rfc) == 14:
+                    fecha_rfc = rfc[4:10]
+                    
+                    # Primeros 4 caracteres deben ser letras
+                    if not rfc[:4].isalpha():
+                        return False, "Los primeros 4 caracteres deben ser letras"
+                    # Siguientes 6 caracteres deben ser números (fecha)
+                    if not rfc[4:10].isdigit():
+                        return False, "Los caracteres 5-10 deben ser dígitos (fecha)"
+                    # Últimos 4 caracteres deben ser alfanuméricos
+                    if not all(c.isalnum() for c in rfc[10:]):
+                        return False, "Los últimos 3 caracteres deben ser alfanuméricos"
 
-            fecha_rfc = rfc[4:10]
+                # Comparar fecha del RFC con la fecha de nacimiento
+                if fecha_rfc != fecha_esperada:
+                    return False, f"La fecha en el RFC ({fecha_rfc}) no coincide con la fecha de nacimiento ({fecha_esperada})"
 
-        # Validar que la fecha del RFC coincida con la fecha de nacimiento
-        try:
-            dia, mes, año = fecha_nacimiento.split('/')
-            año_corto = año[-2:]
-            fecha_esperada = año_corto + mes + dia
-
-            if fecha_rfc != fecha_esperada:
-                return False, f"La fecha en el RFC ({fecha_rfc}) no coincide con la fecha de nacimiento ({fecha_esperada})"
-
-        except Exception:
-            return False, "Error al comparar fechas"
+            except Exception as e:
+                return False, f"Error al comparar fechas: {str(e)}"
+        else:
+            # Si no hay fecha de nacimiento, solo validar el formato básico
+            if len(rfc) == 13:  # Persona moral
+                if not (rfc[:3].isalpha() and rfc[3:9].isdigit() and all(c.isalnum() for c in rfc[9:])):
+                    return False, "Formato de RFC inválido para persona moral"
+            else:  # Persona física (13 caracteres)
+                if not (rfc[:4].isalpha() and rfc[4:10].isdigit() and all(c.isalnum() for c in rfc[10:])):
+                    return False, "Formato de RFC inválido para persona física"
 
         return True, "RFC válido"
 

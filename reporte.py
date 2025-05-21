@@ -324,14 +324,16 @@ class reporte:
         # Consultar materia prima
         query_mp = f"""
             SELECT
-                ID_MateriaPrima as id,
-                Nombre,
-                Stock,
-                Unidad,
-                'Materia Prima' as Tipo
-            FROM materiaprima
+                mp.ID_MateriaPrima AS id,
+                mp.Nombre,
+                mp.Stock,
+                mc.Nombre AS Unidad,
+                tmp.Nombre AS Tipo
+            FROM materiaprima mp
+            JOIN medidacantidad mc ON mp.FK_ID_MedidaCantidad = mc.ID_MedidaCantidad
+            JOIN tipomateriaprima tmp ON mp.FK_ID_TipoMateriaPrima = tmp.ID_TipoMateriaPrima
             {filtro_sql}
-            ORDER BY Stock ASC
+            ORDER BY mp.Stock ASC
         """
 
         try:
@@ -358,7 +360,7 @@ class reporte:
         query = f"""
             SELECT
                 p.ID_PedidoVenta as id,
-                c.Nombre as cliente,
+                c.Nombre_cliente as cliente,
                 p.Fecha_pedido,
                 p.Fecha_entrega,
                 p.Estado,

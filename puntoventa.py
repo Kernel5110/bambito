@@ -228,6 +228,11 @@ class PuntoVenta:
         self.scroll_ticket = 0
         self.productos_ticket_visibles = 6  # Número de productos visibles en el ticket
 
+        #Tiempos de aletra visible
+        self.alerta = ""
+        self.tiempo_alerta = 0  # Para rastrear cuando se mostró la alerta
+        self.duracion_alerta = 5000  # 5000 milisegundos = 5 segundos
+
     def cargar_productos_desde_db(self):
         """
         Carga todos los productos disponibles desde la base de datos
@@ -260,6 +265,8 @@ class PuntoVenta:
             mensaje (str): Mensaje a mostrar
         """
         self.alerta = mensaje
+        # Registrar el tiempo en que se mostró la alerta
+        self.tiempo_alerta = pygame.time.get_ticks()
         print("ALERTA:", mensaje)
 
     def filtrar_productos(self):
@@ -276,18 +283,37 @@ class PuntoVenta:
 
     def dibujar_alerta(self, surface):
         """
-        Dibuja la alerta actual en la pantalla
+        Dibuja la alerta actual en la pantalla si no han pasado 5 segundos
         
         Args:
             surface (pygame.Surface): Superficie donde dibujar
         """
+        # Verificar si hay una alerta para mostrar
         if self.alerta:
-            rect = pygame.Rect(self.x + int(0.05 * self.ancho), self.y + int(0.03 * self.alto), int(0.5 * self.ancho), int(0.06 * self.alto))
-            pygame.draw.rect(surface, COLOR_ALERTA, rect, border_radius=10)
-            pygame.draw.rect(surface, COLOR_ALERTA_BORDE, rect, 2, border_radius=10)
-            fuente_alerta = pygame.font.SysFont("Open Sans", int(0.032 * self.alto), bold=True)
-            texto = fuente_alerta.render(self.alerta, True, COLOR_ALERTA_BORDE)
-            surface.blit(texto, (rect.x + 20, rect.y + 10))
+            # Verificar si han pasado 5 segundos desde que se mostró la alerta
+            tiempo_actual = pygame.time.get_ticks()
+            if tiempo_actual - self.tiempo_alerta >= self.duracion_alerta:
+                # Han pasado 5 segundos, eliminar la alerta
+                self.alerta = ""
+            else:
+                # Dibujar la alerta en la pantalla
+                rect = pygame.Rect(self.x + int(0.05 * self.ancho), self.y + int(0.03 * self.alto), 
+                                int(0.5 * self.ancho), int(0.06 * self.alto))
+                pygame.draw.rect(surface, COLOR_ALERTA, rect, border_radius=10)
+                pygame.draw.rect(surface, COLOR_ALERTA_BORDE, rect, 2, border_radius=10)
+                fuente_alerta = pygame.font.SysFont("Open Sans", int(0.032 * self.alto), bold=True)
+                texto = fuente_alerta.render(self.alerta, True, COLOR_ALERTA_BORDE)
+                surface.blit(texto, (rect.x + 20, rect.y + 10))
+                
+                # Opcional: Efecto de desvanecimiento
+                # Calcular transparencia basada en el tiempo restante
+                tiempo_restante = self.duracion_alerta - (tiempo_actual - self.tiempo_alerta)
+                if tiempo_restante < 1000:  # Último segundo
+                    # Dibujar un rectángulo semitransparente encima para crear efecto de desvanecimiento
+                    transparencia = int(255 * (tiempo_restante / 1000))
+                    s = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+                    s.fill((241, 236, 227, 255 - transparencia))  # COLOR_FONDO con alpha
+                    surface.blit(s, (rect.x, rect.y))
 
     def dibujar_campo_busqueda(self, surface, x, y, w, h):
         """
@@ -627,11 +653,11 @@ class PuntoVenta:
                 surface.blit(btn_text, (col_x + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
 
                 # Botón de incrementar
-                btn_incrementar = pygame.Rect(col_x + btn_w + 10, btn_y, btn_w, btn_h)
+                btn_incrementar = pygame.Rect(col_x + btn_w + 8, btn_y, btn_w, btn_h)
                 pygame.draw.rect(surface, (0, 180, 0), btn_incrementar, border_radius=5)
                 pygame.draw.rect(surface, (0, 120, 0), btn_incrementar, 2, border_radius=5)
                 btn_text = self.fuente_producto.render("+", True, self.BLANCO)
-                surface.blit(btn_text, (col_x + btn_w + 10 + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
+                surface.blit(btn_text, (col_x + btn_w + 9 + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
 
                 # Guardar referencias a los botones
                 self.ticket_productos_rects[-1] = (producto_rect, i, btn_decrementar, btn_incrementar)
