@@ -216,6 +216,16 @@ class ajustes:
         self.proveedores = []
         self.cargar_proveedores()
 
+        # Variables para edición de tablas
+        self.celda_editando = None  # (seccion, fila_idx, col_idx, key)
+        self.input_edicion = None
+        self.mensaje_edicion = ""
+        self.celdas_empleados = []
+        self.celdas_clientes = []
+        self.celdas_proveedores = []
+        self.ultimo_clic_tiempo = 0
+        self.ultima_celda_clic = None
+
     def calcular_x_centrada(self, col_widths):
         """
         Calcula la posición X para centrar una tabla
@@ -384,13 +394,7 @@ class ajustes:
 
     def dibujar_tabla_empleados(self, surface, y, row_height, datos):
         """
-        Dibuja una tabla con la información de empleados
-
-        Args:
-            surface (pygame.Surface): Superficie donde dibujar
-            y (int): Posición Y de la tabla
-            row_height (int): Altura de cada fila
-            datos (list): Lista de diccionarios con datos de empleados
+        Dibuja una tabla editable con la información de empleados
         """
         columnas = [
             "Nombre", "Ap. Paterno", "Ap. Materno", "CURP", "Sexo", "RFC", "NSS",
@@ -407,6 +411,9 @@ class ajustes:
         x = self.x + (self.ancho - ancho_tabla) // 2
         col_x = x
 
+        # Limpiar referencias de celdas
+        self.celdas_empleados = []
+
         # Dibujar encabezados
         font = pygame.font.SysFont("Open Sans", 20, bold=True)
         for i, col in enumerate(columnas):
@@ -420,15 +427,40 @@ class ajustes:
         # Dibujar filas de datos
         fila_y = y + row_height
         font_row = pygame.font.SysFont("Open Sans", 18)
-        for fila in datos:
+        for fila_idx, fila in enumerate(datos):
             col_x = x
             for i, key in enumerate(col_keys):
-                pygame.draw.rect(surface, (255, 255, 255), (col_x, fila_y, col_widths[i], row_height))
-                pygame.draw.rect(surface, (180, 180, 180), (col_x, fila_y, col_widths[i], row_height), 1)
-                valor = fila[key]
-                texto = font_row.render(str(valor), True, (0, 0, 0))
-                text_rect = texto.get_rect(center=(col_x + col_widths[i] // 2, fila_y + row_height // 2))
-                surface.blit(texto, text_rect)
+                # Crear rectángulo para la celda
+                celda_rect = pygame.Rect(col_x, fila_y, col_widths[i], row_height)
+                
+                # Color de la celda
+                color_celda = (255, 255, 255)
+                if (self.celda_editando and self.celda_editando[0] == "empleados" and 
+                    self.celda_editando[1] == fila_idx and self.celda_editando[2] == i):
+                    color_celda = (220, 240, 255)  # Azul claro para celda en edición
+                
+                pygame.draw.rect(surface, color_celda, celda_rect)
+                pygame.draw.rect(surface, (180, 180, 180), celda_rect, 1)
+                
+                # Si esta celda se está editando, mostrar el InputBox
+                if (self.celda_editando and self.celda_editando[0] == "empleados" and 
+                    self.celda_editando[1] == fila_idx and self.celda_editando[2] == i and 
+                    self.input_edicion):
+                    self.input_edicion.rect.x = col_x + 5
+                    self.input_edicion.rect.y = fila_y + (row_height - self.input_edicion.rect.height) // 2
+                    self.input_edicion.rect.width = col_widths[i] - 10
+                    self.input_edicion.draw(surface)
+                else:
+                    # Mostrar el valor normal
+                    valor = fila[key]
+                    texto = font_row.render(str(valor), True, (0, 0, 0))
+                    text_rect = texto.get_rect(center=(col_x + col_widths[i] // 2, fila_y + row_height // 2))
+                    surface.blit(texto, text_rect)
+                
+                # Guardar referencia a la celda (excluyendo ID que no debe editarse)
+                if key != "id":
+                    self.celdas_empleados.append((celda_rect, fila_idx, i, key, fila["id"]))
+                    
                 col_x += col_widths[i]
             fila_y += row_height
 
@@ -761,13 +793,7 @@ class ajustes:
 
     def dibujar_tabla_clientes(self, surface, y, row_height, datos):
         """
-        Dibuja una tabla con la información de clientes
-
-        Args:
-            surface (pygame.Surface): Superficie donde dibujar
-            y (int): Posición Y de la tabla
-            row_height (int): Altura de cada fila
-            datos (list): Lista de diccionarios con datos de clientes
+        Dibuja una tabla editable con la información de clientes
         """
         columnas = ["Nombre", "Apellido Paterno", "Apellido Materno", "Teléfono", "Correo", "RFC", "Calle", "Colonia", "CP"]
         col_keys = ["nombre", "ap_paterno", "ap_materno", "telefono", "correo", "rfc", "calle", "colonia", "cod_postal"]
@@ -777,6 +803,9 @@ class ajustes:
         ancho_tabla = sum(col_widths)
         x = self.x + (self.ancho - ancho_tabla) // 2
         col_x = x
+
+        # Limpiar referencias de celdas
+        self.celdas_clientes = []
 
         # Dibujar encabezados
         font = pygame.font.SysFont("Open Sans", 20, bold=True)
@@ -791,15 +820,39 @@ class ajustes:
         # Dibujar filas de datos
         fila_y = y + row_height
         font_row = pygame.font.SysFont("Open Sans", 18)
-        for fila in datos:
+        for fila_idx, fila in enumerate(datos):
             col_x = x
             for i, key in enumerate(col_keys):
-                pygame.draw.rect(surface, (255, 255, 255), (col_x, fila_y, col_widths[i], row_height))
-                pygame.draw.rect(surface, (180, 180, 180), (col_x, fila_y, col_widths[i], row_height), 1)
-                valor = fila[key]
-                texto = font_row.render(str(valor), True, (0, 0, 0))
-                text_rect = texto.get_rect(center=(col_x + col_widths[i] // 2, fila_y + row_height // 2))
-                surface.blit(texto, text_rect)
+                # Crear rectángulo para la celda
+                celda_rect = pygame.Rect(col_x, fila_y, col_widths[i], row_height)
+                
+                # Color de la celda
+                color_celda = (255, 255, 255)
+                if (self.celda_editando and self.celda_editando[0] == "clientes" and 
+                    self.celda_editando[1] == fila_idx and self.celda_editando[2] == i):
+                    color_celda = (220, 240, 255)
+                
+                pygame.draw.rect(surface, color_celda, celda_rect)
+                pygame.draw.rect(surface, (180, 180, 180), celda_rect, 1)
+                
+                # Si esta celda se está editando, mostrar el InputBox
+                if (self.celda_editando and self.celda_editando[0] == "clientes" and 
+                    self.celda_editando[1] == fila_idx and self.celda_editando[2] == i and 
+                    self.input_edicion):
+                    self.input_edicion.rect.x = col_x + 5
+                    self.input_edicion.rect.y = fila_y + (row_height - self.input_edicion.rect.height) // 2
+                    self.input_edicion.rect.width = col_widths[i] - 10
+                    self.input_edicion.draw(surface)
+                else:
+                    valor = fila[key]
+                    texto = font_row.render(str(valor), True, (0, 0, 0))
+                    text_rect = texto.get_rect(center=(col_x + col_widths[i] // 2, fila_y + row_height // 2))
+                    surface.blit(texto, text_rect)
+                
+                # Guardar referencia a la celda
+                if key != "id":
+                    self.celdas_clientes.append((celda_rect, fila_idx, i, key, fila["id"]))
+                    
                 col_x += col_widths[i]
             fila_y += row_height
 
@@ -1006,13 +1059,7 @@ class ajustes:
 
     def dibujar_tabla_proveedores(self, surface, y, row_height, datos):
         """
-        Dibuja una tabla con la información de proveedores
-
-        Args:
-            surface (pygame.Surface): Superficie donde dibujar
-            y (int): Posición Y de la tabla
-            row_height (int): Altura de cada fila
-            datos (list): Lista de diccionarios con datos de proveedores
+        Dibuja una tabla editable con la información de proveedores
         """
         columnas = ["Nombre", "Apellido Paterno", "Apellido Materno", "Razón Social", "RFC", "Correo", "Teléfono"]
         col_keys = ["nombre", "ap_paterno", "ap_materno", "razon_social", "rfc", "correo", "telefono"]
@@ -1022,6 +1069,9 @@ class ajustes:
         ancho_tabla = sum(col_widths)
         x = self.x + (self.ancho - ancho_tabla) // 2
         col_x = x
+
+        # Limpiar referencias de celdas
+        self.celdas_proveedores = []
 
         # Dibujar encabezados
         font = pygame.font.SysFont("Open Sans", 20, bold=True)
@@ -1036,15 +1086,39 @@ class ajustes:
         # Dibujar filas de datos
         fila_y = y + row_height
         font_row = pygame.font.SysFont("Open Sans", 18)
-        for fila in datos:
+        for fila_idx, fila in enumerate(datos):
             col_x = x
             for i, key in enumerate(col_keys):
-                pygame.draw.rect(surface, (255, 255, 255), (col_x, fila_y, col_widths[i], row_height))
-                pygame.draw.rect(surface, (180, 180, 180), (col_x, fila_y, col_widths[i], row_height), 1)
-                valor = fila[key]
-                texto = font_row.render(str(valor), True, (0, 0, 0))
-                text_rect = texto.get_rect(center=(col_x + col_widths[i] // 2, fila_y + row_height // 2))
-                surface.blit(texto, text_rect)
+                # Crear rectángulo para la celda
+                celda_rect = pygame.Rect(col_x, fila_y, col_widths[i], row_height)
+                
+                # Color de la celda
+                color_celda = (255, 255, 255)
+                if (self.celda_editando and self.celda_editando[0] == "proveedores" and 
+                    self.celda_editando[1] == fila_idx and self.celda_editando[2] == i):
+                    color_celda = (220, 240, 255)
+                
+                pygame.draw.rect(surface, color_celda, celda_rect)
+                pygame.draw.rect(surface, (180, 180, 180), celda_rect, 1)
+                
+                # Si esta celda se está editando, mostrar el InputBox
+                if (self.celda_editando and self.celda_editando[0] == "proveedores" and 
+                    self.celda_editando[1] == fila_idx and self.celda_editando[2] == i and 
+                    self.input_edicion):
+                    self.input_edicion.rect.x = col_x + 5
+                    self.input_edicion.rect.y = fila_y + (row_height - self.input_edicion.rect.height) // 2
+                    self.input_edicion.rect.width = col_widths[i] - 10
+                    self.input_edicion.draw(surface)
+                else:
+                    valor = fila[key]
+                    texto = font_row.render(str(valor), True, (0, 0, 0))
+                    text_rect = texto.get_rect(center=(col_x + col_widths[i] // 2, fila_y + row_height // 2))
+                    surface.blit(texto, text_rect)
+                
+                # Guardar referencia a la celda
+                if key != "id":
+                    self.celdas_proveedores.append((celda_rect, fila_idx, i, key, fila["id"]))
+                    
                 col_x += col_widths[i]
             fila_y += row_height
 
@@ -1188,6 +1262,198 @@ class ajustes:
         finally:
             conexion.cerrar()
 
+    def iniciar_edicion_celda(self, seccion, fila_idx, col_idx, key, valor_actual):
+        """
+        Inicia la edición de una celda específica
+        """
+        # Configurar InputBox para edición
+        font = pygame.font.SysFont("Open Sans", 18)
+        self.input_edicion = InputBox(0, 0, 100, 30, text=str(valor_actual), font=font)
+        
+        # Marcar esta celda como en edición
+        self.celda_editando = (seccion, fila_idx, col_idx, key)
+        
+        # Mensaje de edición
+        self.mensaje_edicion = "Presiona ENTER para guardar o ESC para cancelar"
+
+    def finalizar_edicion(self, guardar=True):
+        """
+        Finaliza la edición de una celda
+        """
+        if not self.celda_editando or not self.input_edicion:
+            return
+        
+        if guardar:
+            seccion, fila_idx, col_idx, key = self.celda_editando
+            nuevo_valor = self.input_edicion.get_value().strip()
+            
+            # Obtener el ID del registro
+            if seccion == "empleados" and fila_idx < len(self.empleados):
+                id_registro = self.empleados[fila_idx]["id"]
+                self.actualizar_empleado(id_registro, key, nuevo_valor)
+            elif seccion == "clientes" and fila_idx < len(self.clientes):
+                id_registro = self.clientes[fila_idx]["id"]
+                self.actualizar_cliente(id_registro, key, nuevo_valor)
+            elif seccion == "proveedores" and fila_idx < len(self.proveedores):
+                id_registro = self.proveedores[fila_idx]["id"]
+                self.actualizar_proveedor(id_registro, key, nuevo_valor)
+        else:
+            self.mensaje_edicion = "Edición cancelada"
+        
+        # Limpiar variables de edición
+        self.celda_editando = None
+        self.input_edicion = None
+
+    def actualizar_empleado(self, id_empleado, campo, nuevo_valor):
+        """
+        Actualiza un campo específico de un empleado en la base de datos
+        """
+        # Mapeo de campos a columnas de la base de datos
+        columnas_db = {
+            "nombre": "Nombre_emple",
+            "ap_paterno": "Ap_Paterno_emple",
+            "ap_materno": "Ap_Materno_emple",
+            "curp": "CURP_emple",
+            "sexo": "Sexo",
+            "rfc": "RFC_emple",
+            "nss": "NSS",
+            "correo": "Correo_Electronico",
+            "telefono": "Telefono_emple"
+        }
+        
+        if campo not in columnas_db:
+            self.mensaje_edicion = "Campo no editable"
+            return
+        
+        columna_db = columnas_db[campo]
+        
+        # Validaciones específicas
+        try:
+            if campo in ["nss", "telefono"]:
+                nuevo_valor = int(nuevo_valor)
+            elif campo == "sexo" and nuevo_valor not in ["M", "F"]:
+                self.mensaje_edicion = "Sexo debe ser M o F"
+                return
+            elif campo == "curp" and len(nuevo_valor) != 18:
+                self.mensaje_edicion = "CURP debe tener 18 caracteres"
+                return
+            elif campo == "rfc" and len(nuevo_valor) not in [12, 13]:
+                self.mensaje_edicion = "RFC debe tener 12 o 13 caracteres"
+                return
+        except ValueError:
+            self.mensaje_edicion = f"Valor inválido para {campo}"
+            return
+        
+        # Actualizar en la base de datos
+        try:
+            conexion = Conexion()
+            query = f"UPDATE empleado SET {columna_db} = %s WHERE Id_Empleado = %s"
+            conexion.conectar()
+            conexion.cursor.execute(query, (nuevo_valor, id_empleado))
+            conexion.conn.commit()
+            conexion.cerrar()
+            
+            # Recargar datos
+            self.cargar_empleados()
+            self.mensaje_edicion = "Empleado actualizado exitosamente"
+        except Exception as e:
+            self.mensaje_edicion = f"Error al actualizar: {str(e)}"
+
+    def actualizar_cliente(self, id_cliente, campo, nuevo_valor):
+        """
+        Actualiza un campo específico de un cliente en la base de datos
+        """
+        columnas_db = {
+            "nombre": "Nombre_Cliente_cliente",
+            "ap_paterno": "Ap_Paterno_cliente_cli",
+            "ap_materno": "Ap_Materno_cliente_cli",
+            "telefono": "Telefono_cli",
+            "correo": "Correo",
+            "rfc": "RFC",
+            "calle": "Calle",
+            "colonia": "Colonia",
+            "cod_postal": "Cod_Postal"
+        }
+        
+        if campo not in columnas_db:
+            self.mensaje_edicion = "Campo no editable"
+            return
+        
+        columna_db = columnas_db[campo]
+        
+        # Validaciones específicas
+        try:
+            if campo in ["telefono", "cod_postal"]:
+                nuevo_valor = int(nuevo_valor)
+            elif campo == "rfc" and len(nuevo_valor) not in [12, 13]:
+                self.mensaje_edicion = "RFC debe tener 12 o 13 caracteres"
+                return
+        except ValueError:
+            self.mensaje_edicion = f"Valor inválido para {campo}"
+            return
+        
+        # Actualizar en la base de datos
+        try:
+            conexion = Conexion()
+            query = f"UPDATE Cliente SET {columna_db} = %s WHERE Id_Cliente = %s"
+            conexion.conectar()
+            conexion.cursor.execute(query, (nuevo_valor, id_cliente))
+            conexion.conn.commit()
+            conexion.cerrar()
+            
+            # Recargar datos
+            self.cargar_clientes()
+            self.mensaje_edicion = "Cliente actualizado exitosamente"
+        except Exception as e:
+            self.mensaje_edicion = f"Error al actualizar: {str(e)}"
+
+    def actualizar_proveedor(self, id_proveedor, campo, nuevo_valor):
+        """
+        Actualiza un campo específico de un proveedor en la base de datos
+        """
+        columnas_db = {
+            "nombre": "Nombre_prov_proveedor",
+            "ap_paterno": "Ap_paterno_prov",
+            "ap_materno": "Ap_materno_prov",
+            "razon_social": "Razon_Social",
+            "rfc": "RFC",
+            "correo": "Correo_prov",
+            "telefono": "Telefono_prov"
+        }
+        
+        if campo not in columnas_db:
+            self.mensaje_edicion = "Campo no editable"
+            return
+        
+        columna_db = columnas_db[campo]
+        
+        # Validaciones específicas
+        try:
+            if campo == "telefono":
+                nuevo_valor = int(nuevo_valor)
+            elif campo == "rfc" and len(nuevo_valor) not in [12, 13]:
+                self.mensaje_edicion = "RFC debe tener 12 o 13 caracteres"
+                return
+        except ValueError:
+            self.mensaje_edicion = f"Valor inválido para {campo}"
+            return
+        
+        # Actualizar en la base de datos
+        try:
+            conexion = Conexion()
+            query = f"UPDATE Proveedor SET {columna_db} = %s WHERE Id_Proveedor = %s"
+            conexion.conectar()
+            conexion.cursor.execute(query, (nuevo_valor, id_proveedor))
+            conexion.conn.commit()
+            conexion.cerrar()
+            
+            # Recargar datos
+            self.cargar_proveedores()
+            self.mensaje_edicion = "Proveedor actualizado exitosamente"
+        except Exception as e:
+            self.mensaje_edicion = f"Error al actualizar: {str(e)}"
+
+
     def handle_event(self, event):
         """
         Maneja todos los eventos del sistema
@@ -1200,6 +1466,24 @@ class ajustes:
         - MOUSEMOTION: Efectos de hover
         - KEYDOWN: Entrada de texto en campos
         """
+        # Eventos de edición de tabla
+        if self.celda_editando and self.input_edicion:
+            # Si estamos editando, dar prioridad a eventos del InputBox
+            self.input_edicion.handle_event(event)
+            
+            # Teclas para confirmar o cancelar edición
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    self.finalizar_edicion(guardar=True)
+                elif event.key == pygame.K_ESCAPE:
+                    self.finalizar_edicion(guardar=False)
+            return
+
+        # Temporizador para ocultar mensajes
+        if event.type == pygame.USEREVENT + 1:
+            self.mensaje_edicion = ""
+            pygame.time.set_timer(pygame.USEREVENT + 1, 0)
+            
         # --- Formulario de empleados ---
         if self.mostrando_formulario_empleado:
             for box in self.formulario_empleado_boxes:
@@ -1252,12 +1536,21 @@ class ajustes:
             elif self.opcion_seleccionada == "EMPLEADOS":
                 if self.btn_nuevo_empleado.collidepoint(mouse_pos):
                     self.mostrar_formulario_nuevo_empleado()
+                else:
+                    # Verificar clics en celdas de tabla de empleados
+                    self.manejar_clic_tabla_empleados(mouse_pos)
             elif self.opcion_seleccionada == "CLIENTES":
                 if self.btn_nuevo_cliente.collidepoint(mouse_pos):
                     self.mostrar_formulario_nuevo_cliente()
+                else:
+                    # Verificar clics en celdas de tabla de clientes
+                    self.manejar_clic_tabla_clientes(mouse_pos)
             elif self.opcion_seleccionada == "PROVEEDORES":
                 if self.btn_nuevo_proveedor.collidepoint(mouse_pos):
                     self.mostrar_formulario_nuevo_proveedor()
+                else:
+                    # Verificar clics en celdas de tabla de proveedores
+                    self.manejar_clic_tabla_proveedores(mouse_pos)
 
         elif event.type == pygame.MOUSEMOTION:
             # Efectos hover en botones
@@ -1275,15 +1568,6 @@ class ajustes:
                 self.input_direccion.handle_event(event)
                 self.input_telefono.handle_event(event)
                 self.input_email.handle_event(event)
-            elif self.opcion_seleccionada == "EMPLEADOS" and self.mostrando_formulario_empleado:
-                for box in self.formulario_empleado_boxes:
-                    box.handle_event(event)
-            elif self.opcion_seleccionada == "CLIENTES" and self.mostrando_formulario_cliente:
-                for box in self.formulario_cliente_boxes:
-                    box.handle_event(event)
-            elif self.opcion_seleccionada == "PROVEEDORES" and self.mostrando_formulario_proveedor:
-                for box in self.formulario_proveedor_boxes:
-                    box.handle_event(event)
 
     def validar_fecha_nacimiento(self, fecha_str):
         """
@@ -1440,3 +1724,69 @@ class ajustes:
         self.input_email.set_value(self.info_negocio["email"])
         self.logo_img = pygame.image.load(self.info_negocio["logo_path"])
         self.logo_img = pygame.transform.scale(self.logo_img, (120, 120))
+
+    def manejar_clic_tabla_empleados(self, mouse_pos):
+        """
+        Maneja clics en la tabla de empleados para iniciar edición
+        """
+        tiempo_actual = pygame.time.get_ticks()
+        
+        for celda_rect, fila_idx, col_idx, key, id_registro in self.celdas_empleados:
+            if celda_rect.collidepoint(mouse_pos):
+                # Detectar doble clic
+                celda_actual = (fila_idx, col_idx)
+                if (self.ultima_celda_clic == celda_actual and 
+                    tiempo_actual - self.ultimo_clic_tiempo < 500):
+                    # Doble clic detectado - iniciar edición
+                    if fila_idx < len(self.empleados):
+                        valor_actual = self.empleados[fila_idx][key]
+                        self.iniciar_edicion_celda("empleados", fila_idx, col_idx, key, valor_actual)
+                else:
+                    # Primer clic - guardar información
+                    self.ultima_celda_clic = celda_actual
+                    self.ultimo_clic_tiempo = tiempo_actual
+                break
+
+    def manejar_clic_tabla_clientes(self, mouse_pos):
+        """
+        Maneja clics en la tabla de clientes para iniciar edición
+        """
+        tiempo_actual = pygame.time.get_ticks()
+        
+        for celda_rect, fila_idx, col_idx, key, id_registro in self.celdas_clientes:
+            if celda_rect.collidepoint(mouse_pos):
+                # Detectar doble clic
+                celda_actual = (fila_idx, col_idx)
+                if (self.ultima_celda_clic == celda_actual and 
+                    tiempo_actual - self.ultimo_clic_tiempo < 500):
+                    # Doble clic detectado - iniciar edición
+                    if fila_idx < len(self.clientes):
+                        valor_actual = self.clientes[fila_idx][key]
+                        self.iniciar_edicion_celda("clientes", fila_idx, col_idx, key, valor_actual)
+                else:
+                    # Primer clic - guardar información
+                    self.ultima_celda_clic = celda_actual
+                    self.ultimo_clic_tiempo = tiempo_actual
+                break
+
+    def manejar_clic_tabla_proveedores(self, mouse_pos):
+        """
+        Maneja clics en la tabla de proveedores para iniciar edición
+        """
+        tiempo_actual = pygame.time.get_ticks()
+        
+        for celda_rect, fila_idx, col_idx, key, id_registro in self.celdas_proveedores:
+            if celda_rect.collidepoint(mouse_pos):
+                # Detectar doble clic
+                celda_actual = (fila_idx, col_idx)
+                if (self.ultima_celda_clic == celda_actual and 
+                    tiempo_actual - self.ultimo_clic_tiempo < 500):
+                    # Doble clic detectado - iniciar edición
+                    if fila_idx < len(self.proveedores):
+                        valor_actual = self.proveedores[fila_idx][key]
+                        self.iniciar_edicion_celda("proveedores", fila_idx, col_idx, key, valor_actual)
+                else:
+                    # Primer clic - guardar información
+                    self.ultima_celda_clic = celda_actual
+                    self.ultimo_clic_tiempo = tiempo_actual
+                break
