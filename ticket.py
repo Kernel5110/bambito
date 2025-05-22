@@ -14,6 +14,9 @@ class Ticket:
         self.fecha = datetime.now()
         self.productos = []  # Lista de productos, cada uno es un diccionario: {"nombre":..., "unidades":..., "precio":..., "id":...}
         self.pie_pagina = "¡Gracias por su compra!"
+        self.tipo_pago = "Efectivo"  # Por defecto es efectivo
+        self.efectivo_recibido = 0.0  # Monto de efectivo recibido
+        self.cambio = 0.0  # Cambio a entregar
 
     def agregar_producto(self, nombre, unidades, precio, id_producto):
         """
@@ -51,9 +54,12 @@ class Ticket:
 
     def limpiar(self):
         """
-        Limpia la lista de productos del ticket.
+        Limpia la lista de productos del ticket y reinicia valores de pago.
         """
         self.productos.clear()
+        self.tipo_pago = "Efectivo"
+        self.efectivo_recibido = 0.0
+        self.cambio = 0.0
 
     def eliminar_producto(self, nombre):
         """
@@ -78,6 +84,16 @@ class Ticket:
         pdf.cell(0, 10, "Benito Juarez #106, Oaxaca, Oax", ln=True, align="C")
         pdf.cell(0, 10, "Tel. 9513060854", ln=True, align="C")
         pdf.cell(0, 10, "Ticket de compra", ln=True, align="C")
+        
+        # Agregar fecha y hora
+        pdf.ln(5)
+        fecha_hora = self.fecha.strftime("%d/%m/%Y %H:%M:%S")
+        pdf.cell(0, 10, f"Fecha: {fecha_hora}", ln=True, align="C")
+        
+        # Agregar tipo de pago
+        pdf.set_font("helvetica", "B", 12)
+        pdf.cell(0, 10, f"Tipo de pago: {self.tipo_pago}", ln=True, align="C")
+        
         pdf.ln(10)
         pdf.set_font("helvetica", "B", 12)
         pdf.cell(80, 10, "Producto", 1)
@@ -109,7 +125,18 @@ class Ticket:
         pdf.ln()
         pdf.cell(150, 10, "TOTAL", 1)
         pdf.cell(40, 10, f"${total:.2f}", 1, align="R")
-        pdf.ln(20)
+        pdf.ln(15)
+        
+        # Información de pago
+        pdf.set_font("helvetica", "B", 12)
+        pdf.cell(0, 10, f"FORMA DE PAGO: {self.tipo_pago.upper()}", ln=True, align="L")
+        
+        if self.tipo_pago == "Efectivo":
+            pdf.set_font("helvetica", "", 12)
+            pdf.cell(0, 10, f"Efectivo recibido: ${self.efectivo_recibido:.2f}", ln=True, align="L")
+            pdf.cell(0, 10, f"Cambio: ${self.cambio:.2f}", ln=True, align="L")
+        
+        pdf.ln(10)
         pdf.set_font("helvetica", "I", 10)
         pdf.cell(0, 10, self.pie_pagina, ln=True, align="C")
         pdf.output(ruta)

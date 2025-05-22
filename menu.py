@@ -321,6 +321,9 @@ def main(nombre_usuario, puesto):
                         filename = f"screenshot_{now}.png"
                         pygame.image.save(ventana, filename)
                         print(f"Captura de pantalla guardada como {filename}")
+                    # --- Salir con ESC ---
+                    elif event.key == pygame.K_ESCAPE:
+                        en_menu = False  # Salir del menú al presionar ESC
                 
                 if mostrar_recetas:
                     receta_instancia.handle_event(event)

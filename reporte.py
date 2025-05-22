@@ -103,6 +103,14 @@ class reporte:
         self.fecha_corte = datetime.datetime.now().strftime('%Y-%m-%d')
         self.corte_caja_datos = {}
         self.metodos_pago = []
+        # Selector de fecha para corte de caja - MOVIDO MÁS ABAJO
+        self.fecha_seleccionada = self.fecha_corte
+        self.selector_fecha_rect = None  # Se calculará dinámicamente
+        self.selector_fecha_activo = False
+
+        # Botones para cambiar fecha - también se calcularán dinámicamente
+        self.boton_fecha_anterior = None
+        self.boton_fecha_siguiente = None
 
         # Selector de fecha para corte de caja
         self.fecha_seleccionada = self.fecha_corte
@@ -134,8 +142,16 @@ class reporte:
         self.inventario_filtro = "TODOS"  # TODOS, BAJO, AGOTADO
         self.filtros_inventario = ["TODOS", "BAJO", "AGOTADO"]
         self.botones_filtro_inventario = []
-        self.inventario_pagina_actual = 0
-        self.inventario_items_por_pagina = 10
+        
+        # Variables de scroll para inventario
+        self.inventario_scroll_y = 0
+        self.inventario_scroll_max = 0
+        self.inventario_scroll_speed = 30  # Píxeles por scroll
+        self.inventario_visible_rows = 12  # Número de filas visibles
+        self.inventario_row_height = 40
+        
+        # Área de scroll del inventario
+        self.inventario_scroll_area = None
 
         # Botones para filtros de inventario
         for i, filtro in enumerate(self.filtros_inventario):
@@ -148,28 +164,21 @@ class reporte:
                 )
             )
 
-        # Botones para navegación de páginas de inventario
-        self.boton_anterior_pagina = pygame.Rect(
-            self.x + int(0.35 * self.ancho),
-            self.y + int(0.75 * self.alto),
-            int(0.1 * self.ancho),
-            int(0.04 * self.alto)
-        )
-
-        self.boton_siguiente_pagina = pygame.Rect(
-            self.x + int(0.55 * self.ancho),
-            self.y + int(0.75 * self.alto),
-            int(0.1 * self.ancho),
-            int(0.04 * self.alto)
-        )
-
         # Datos para reporte de pedidos
         self.pedidos_datos = []
         self.pedidos_filtro = "TODOS"  # TODOS, PENDIENTES, COMPLETADOS
         self.filtros_pedidos = ["TODOS", "PENDIENTES", "COMPLETADOS"]
         self.botones_filtro_pedidos = []
-        self.pedidos_pagina_actual = 0
-        self.pedidos_items_por_pagina = 8
+        
+        # Variables de scroll para pedidos
+        self.pedidos_scroll_y = 0
+        self.pedidos_scroll_max = 0
+        self.pedidos_scroll_speed = 30  # Píxeles por scroll
+        self.pedidos_visible_rows = 10  # Número de filas visibles
+        self.pedidos_row_height = 40
+        
+        # Área de scroll de pedidos
+        self.pedidos_scroll_area = None
 
         # Botones para filtros de pedidos
         for i, filtro in enumerate(self.filtros_pedidos):
@@ -182,20 +191,11 @@ class reporte:
                 )
             )
 
-        # Botones para navegación de páginas de pedidos
-        self.boton_anterior_pagina_pedidos = pygame.Rect(
-            self.x + int(0.35 * self.ancho),
-            self.y + int(0.75 * self.alto),
-            int(0.1 * self.ancho),
-            int(0.04 * self.alto)
-        )
-
-        self.boton_siguiente_pagina_pedidos = pygame.Rect(
-            self.x + int(0.55 * self.ancho),
-            self.y + int(0.75 * self.alto),
-            int(0.1 * self.ancho),
-            int(0.04 * self.alto)
-        )
+        # Variables para barra de scroll
+        self.scroll_bar_width = 15
+        self.scroll_handle_height = 50
+        self.dragging_scroll = False
+        self.drag_offset = 0
 
     def cargar_ventas_por_dia(self):
         """
@@ -317,29 +317,44 @@ class reporte:
         # Filtro según la opción seleccionada
         filtro_sql = ""
         if self.inventario_filtro == "BAJO":
-            filtro_sql = " WHERE Stock <= 10 AND Stock > 0"
+            filtro_sql = " WHERE stock_minimo <= 10 AND stock_minimo > 0"
         elif self.inventario_filtro == "AGOTADO":
-            filtro_sql = " WHERE Stock = 0"
+            filtro_sql = " WHERE Cantidad = 0"
 
         # Consultar materia prima
         query_mp = f"""
             SELECT
-                ID_MateriaPrima as id,
-                Nombre,
-                Stock,
-                Unidad,
-                'Materia Prima' as Tipo
-            FROM materiaprima
+                mp.ID_MateriaPrima AS id,
+                mp.Nombre,
+                mp.Cantidad,
+                mc.Nombre AS Unidad,
+                tmp.Nombre AS Tipo
+            FROM materiaprima mp
+            JOIN medidacantidad mc ON mp.FK_ID_MedidaCantidad = mc.ID_MedidaCantidad
+            JOIN tipomateriaprima tmp ON mp.FK_ID_TipoMateriaPrima = tmp.ID_TipoMateriaPrima
             {filtro_sql}
-            ORDER BY Stock ASC
+            ORDER BY mp.Cantidad ASC
         """
 
         try:
             resultado_mp = conexion.consultar(query_mp)
             self.inventario_datos = resultado_mp
+            
+            # Calcular scroll máximo
+            total_rows = len(self.inventario_datos)
+            if total_rows > self.inventario_visible_rows:
+                self.inventario_scroll_max = (total_rows - self.inventario_visible_rows) * self.inventario_row_height
+            else:
+                self.inventario_scroll_max = 0
+                
+            # Resetear scroll al cambiar filtro
+            self.inventario_scroll_y = 0
+            
         except Exception as e:
             print(f"Error al cargar inventario: {e}")
             self.inventario_datos = []
+            self.inventario_scroll_max = 0
+            self.inventario_scroll_y = 0
 
     def cargar_pedidos(self):
         """
@@ -358,7 +373,7 @@ class reporte:
         query = f"""
             SELECT
                 p.ID_PedidoVenta as id,
-                c.Nombre as cliente,
+                c.Nombre_cliente as cliente,
                 p.Fecha_pedido,
                 p.Fecha_entrega,
                 p.Estado,
@@ -373,9 +388,22 @@ class reporte:
 
         try:
             self.pedidos_datos = conexion.consultar(query)
+            
+            # Calcular scroll máximo
+            total_rows = len(self.pedidos_datos)
+            if total_rows > self.pedidos_visible_rows:
+                self.pedidos_scroll_max = (total_rows - self.pedidos_visible_rows) * self.pedidos_row_height
+            else:
+                self.pedidos_scroll_max = 0
+                
+            # Resetear scroll al cambiar filtro
+            self.pedidos_scroll_y = 0
+            
         except Exception as e:
             print(f"Error al cargar pedidos: {e}")
             self.pedidos_datos = []
+            self.pedidos_scroll_max = 0
+            self.pedidos_scroll_y = 0
 
     def dibujar_reporte(self, surface):
         """
@@ -414,37 +442,92 @@ class reporte:
             self.dibujar_corte_caja(surface)
         elif self.opcion_seleccionada == "INVENTARIO":
             self.dibujar_filtros_inventario(surface)
-            self.dibujar_inventario(surface)
+            self.dibujar_inventario_con_scroll(surface)
         elif self.opcion_seleccionada == "PEDIDOS":
             self.dibujar_filtros_pedidos(surface)
-            self.dibujar_pedidos(surface)
+            self.dibujar_pedidos_con_scroll(surface)
 
     def dibujar_selector_fecha(self, surface):
         """
-        Dibuja el selector de fecha en la superficie proporcionada.
+        Dibuja el selector de fecha en la superficie proporcionada, posicionado dinámicamente.
 
         :param surface: Superficie de Pygame donde se dibujará el selector de fecha.
         """
+        # Calcular posición dinámica para que quede debajo de los botones principales
+        graf_x, graf_y, graf_w, graf_h = self._get_grafica_area()
+        
+        # Posicionar selector más abajo, justo después del área de gráficas
+        selector_y = graf_y + int(0.02 * graf_h)  # Un poco más abajo del inicio del área de gráficas
+        selector_w = int(0.15 * self.ancho)
+        selector_h = int(0.06 * self.alto)
+        selector_x = graf_x + (graf_w - selector_w) // 2  # Centrado horizontalmente
+        
+        # Actualizar rectángulos con las nuevas posiciones
+        self.selector_fecha_rect = pygame.Rect(selector_x, selector_y, selector_w, selector_h)
+        
+        # Botones de navegación de fecha
+        boton_w = int(0.04 * self.ancho)
+        boton_h = selector_h
+        margen = int(0.01 * self.ancho)
+        
+        self.boton_fecha_anterior = pygame.Rect(
+            selector_x - boton_w - margen, 
+            selector_y, 
+            boton_w, 
+            boton_h
+        )
+        
+        self.boton_fecha_siguiente = pygame.Rect(
+            selector_x + selector_w + margen, 
+            selector_y, 
+            boton_w, 
+            boton_h
+        )
+
+        # Dibujar label "Fecha:"
+        font_label = pygame.font.SysFont("Open Sans", int(0.032 * self.alto), bold=True)
+        label_fecha = font_label.render("Fecha:", True, (0, 0, 0))
+        label_x = selector_x - label_fecha.get_width() - int(0.02 * self.ancho)
+        label_y = selector_y + (selector_h - label_fecha.get_height()) // 2
+        surface.blit(label_fecha, (label_x, label_y))
+
         # Fondo del selector
         color_fondo = (255, 255, 255)
-        color_borde = (100, 100, 100) if self.selector_fecha_activo else (180, 180, 180)
+        color_borde = (0, 120, 220) if self.selector_fecha_activo else (180, 180, 180)
         pygame.draw.rect(surface, color_fondo, self.selector_fecha_rect, border_radius=10)
-        pygame.draw.rect(surface, color_borde, self.selector_fecha_rect, 2, border_radius=10)
+        pygame.draw.rect(surface, color_borde, self.selector_fecha_rect, 3, border_radius=10)
 
         # Texto de la fecha
-        fecha_formateada = datetime.datetime.strptime(self.fecha_seleccionada, '%Y-%m-%d').strftime('%d/%m/%Y')
-        texto_fecha = self.fuente_boton.render(fecha_formateada, True, (0, 0, 0))
+        try:
+            fecha_formateada = datetime.datetime.strptime(self.fecha_seleccionada, '%Y-%m-%d').strftime('%d/%m/%Y')
+        except:
+            fecha_formateada = self.fecha_seleccionada
+            
+        fuente_fecha = pygame.font.SysFont("Open Sans", int(0.028 * self.alto))
+        texto_fecha = fuente_fecha.render(fecha_formateada, True, (0, 0, 0))
         text_rect = texto_fecha.get_rect(center=self.selector_fecha_rect.center)
         surface.blit(texto_fecha, text_rect)
 
-        # Botones para cambiar fecha
-        pygame.draw.rect(surface, (220, 220, 220), self.boton_fecha_anterior, border_radius=5)
-        pygame.draw.rect(surface, (220, 220, 220), self.boton_fecha_siguiente, border_radius=5)
+        # Botón anterior (flecha izquierda)
+        color_btn_anterior = (200, 200, 200)
+        if self.boton_fecha_anterior.collidepoint(pygame.mouse.get_pos()):
+            color_btn_anterior = (170, 170, 170)
+        
+        pygame.draw.rect(surface, color_btn_anterior, self.boton_fecha_anterior, border_radius=8)
+        pygame.draw.rect(surface, (100, 100, 100), self.boton_fecha_anterior, 2, border_radius=8)
+
+        # Botón siguiente (flecha derecha)
+        color_btn_siguiente = (200, 200, 200)
+        if self.boton_fecha_siguiente.collidepoint(pygame.mouse.get_pos()):
+            color_btn_siguiente = (170, 170, 170)
+            
+        pygame.draw.rect(surface, color_btn_siguiente, self.boton_fecha_siguiente, border_radius=8)
+        pygame.draw.rect(surface, (100, 100, 100), self.boton_fecha_siguiente, 2, border_radius=8)
 
         # Flechas para los botones
-        flecha_font = pygame.font.SysFont("Arial", int(self.alto * 0.04))
-        flecha_izq = flecha_font.render("<", True, (0, 0, 0))
-        flecha_der = flecha_font.render(">", True, (0, 0, 0))
+        flecha_font = pygame.font.SysFont("Arial", int(self.alto * 0.04), bold=True)
+        flecha_izq = flecha_font.render("<-", True, (0, 0, 0))
+        flecha_der = flecha_font.render("->", True, (0, 0, 0))
 
         rect_izq = flecha_izq.get_rect(center=self.boton_fecha_anterior.center)
         rect_der = flecha_der.get_rect(center=self.boton_fecha_siguiente.center)
@@ -477,6 +560,300 @@ class reporte:
             texto = self.fuente_boton.render(self.filtros_pedidos[i], True, (0, 0, 0))
             text_rect = texto.get_rect(center=rect.center)
             surface.blit(texto, text_rect)
+
+    def dibujar_inventario_con_scroll(self, surface):
+        """
+        Dibuja el reporte de inventario con scroll en la superficie proporcionada.
+        """
+        # Si no hay datos, cargarlos
+        if not self.inventario_datos:
+            self.cargar_inventario()
+
+        graf_x, graf_y, graf_w, graf_h = self._get_grafica_area()
+
+        # Ajustar Y para dejar espacio a los filtros
+        graf_y += 40
+        graf_h -= 40
+
+        # Fondo principal
+        pygame.draw.rect(surface, (255, 255, 255), (graf_x, graf_y, graf_w, graf_h), border_radius=12)
+        pygame.draw.rect(surface, (200, 200, 200), (graf_x, graf_y, graf_w, graf_h), 2, border_radius=12)
+
+        # Si no hay inventario
+        if not self.inventario_datos:
+            font = pygame.font.SysFont("Open Sans", int(0.045 * self.alto))
+            msg = font.render(f"No hay datos de inventario con el filtro actual.", True, (180, 0, 0))
+            surface.blit(msg, (graf_x + graf_w//4, graf_y + graf_h // 2))
+            return
+
+        # Título de la sección
+        titulo_seccion = self.fuente_titulo.render(f"Inventario - {self.inventario_filtro}", True, (0, 0, 0))
+        titulo_rect = titulo_seccion.get_rect(center=(graf_x + graf_w // 2, graf_y + 30))
+        surface.blit(titulo_seccion, titulo_rect)
+
+        # Área de la tabla con scroll
+        tabla_x = graf_x + 20
+        tabla_y = graf_y + 80
+        tabla_w = graf_w - 60  # Reservar espacio para scroll bar
+        tabla_h = self.inventario_visible_rows * self.inventario_row_height + 40  # +40 para encabezados
+        
+        # Definir área de scroll para eventos
+        self.inventario_scroll_area = pygame.Rect(tabla_x, tabla_y, tabla_w, tabla_h)
+
+        # Crear superficie para el contenido con scroll
+        content_surface = pygame.Surface((tabla_w, len(self.inventario_datos) * self.inventario_row_height + 40))
+        content_surface.fill((255, 255, 255))
+
+        # Dibujar encabezados en la superficie de contenido
+        font_titulo = pygame.font.SysFont("Open Sans", int(0.04 * self.alto), bold=True)
+        font_normal = pygame.font.SysFont("Open Sans", int(0.035 * self.alto))
+
+        col_widths = [int(0.1 * tabla_w), int(0.35 * tabla_w), int(0.15 * tabla_w), int(0.15 * tabla_w), int(0.25 * tabla_w)]
+        col_headers = ["ID", "Nombre", "Cantidad", "Unidad", "Tipo"]
+
+        # Dibujar encabezados
+        header_y = 0
+        x_pos = 0
+        for i, header in enumerate(col_headers):
+            pygame.draw.rect(content_surface, (220, 220, 255), (x_pos, header_y, col_widths[i], 40))
+            pygame.draw.rect(content_surface, (100, 100, 200), (x_pos, header_y, col_widths[i], 40), 1)
+            texto = font_titulo.render(header, True, (0, 0, 0))
+            rect = texto.get_rect(center=(x_pos + col_widths[i]//2, header_y + 20))
+            content_surface.blit(texto, rect)
+            x_pos += col_widths[i]
+
+        # Dibujar filas de datos
+        row_y = 40
+        for i, item in enumerate(self.inventario_datos):
+            # Color de fondo alternado
+            if i % 2 == 0:
+                pygame.draw.rect(content_surface, (240, 240, 255), (0, row_y, tabla_w, self.inventario_row_height))
+
+            # Color rojo para stock bajo o agotado
+            stock_color = (0, 0, 0)
+            if item['Cantidad'] == 0:
+                stock_color = (255, 0, 0)  # Rojo para agotado
+            elif item['Cantidad'] <= 10:
+                stock_color = (255, 150, 0)  # Naranja para bajo
+
+            # Dibujar datos
+            x_pos = 0
+            cols = ["id", "Nombre", "Cantidad", "Unidad", "Tipo"]
+            for j, col in enumerate(cols):
+                valor = str(item.get(col, ""))
+                color = stock_color if col == "Cantidad" else (0, 0, 0)
+                texto = font_normal.render(valor, True, color)
+                rect = texto.get_rect(midleft=(x_pos + 10, row_y + self.inventario_row_height // 2))
+                content_surface.blit(texto, rect)
+                x_pos += col_widths[j]
+
+            row_y += self.inventario_row_height
+
+        # Dibujar la parte visible del contenido
+        visible_rect = pygame.Rect(0, self.inventario_scroll_y, tabla_w, tabla_h)
+        surface.blit(content_surface, (tabla_x, tabla_y), visible_rect)
+
+        # Dibujar barra de scroll si es necesaria
+        if self.inventario_scroll_max > 0:
+            self.dibujar_scroll_bar(surface, tabla_x + tabla_w, tabla_y, tabla_h, 
+                                   self.inventario_scroll_y, self.inventario_scroll_max, "inventario")
+
+        # Estadísticas de inventario
+        items_agotados = sum(1 for item in self.inventario_datos if item['Cantidad'] == 0)
+        items_bajos = sum(1 for item in self.inventario_datos if 0 < item['Cantidad'] <= 10)
+
+        resumen_font = pygame.font.SysFont("Open Sans", int(0.03 * self.alto))
+        resumen_texto = resumen_font.render(
+            f"Total: {len(self.inventario_datos)} | Agotados: {items_agotados} | Stock bajo: {items_bajos}",
+            True, (50, 50, 120)
+        )
+        rect = resumen_texto.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 40))
+        surface.blit(resumen_texto, rect)
+
+        # Pie de página
+        pie_inventario = self.fuente_pie_pagina.render("Reporte de Inventario", True, (50, 50, 120))
+        pie_rect = pie_inventario.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 15))
+        surface.blit(pie_inventario, pie_rect)
+
+    def dibujar_pedidos_con_scroll(self, surface):
+        """
+        Dibuja el reporte de pedidos con scroll en la superficie proporcionada.
+        """
+        # Si no hay datos, cargarlos
+        if not self.pedidos_datos:
+            self.cargar_pedidos()
+
+        graf_x, graf_y, graf_w, graf_h = self._get_grafica_area()
+
+        # Ajustar Y para dejar espacio a los filtros
+        graf_y += 40
+        graf_h -= 40
+
+        # Fondo principal
+        pygame.draw.rect(surface, (255, 255, 255), (graf_x, graf_y, graf_w, graf_h), border_radius=12)
+        pygame.draw.rect(surface, (200, 200, 200), (graf_x, graf_y, graf_w, graf_h), 2, border_radius=12)
+
+        # Si no hay pedidos
+        if not self.pedidos_datos:
+            font = pygame.font.SysFont("Open Sans", int(0.045 * self.alto))
+            msg = font.render(f"No hay datos de pedidos con el filtro actual.", True, (180, 0, 0))
+            surface.blit(msg, (graf_x + graf_w//4, graf_y + graf_h // 2))
+            return
+
+        # Título de la sección
+        titulo_seccion = self.fuente_titulo.render(f"Pedidos - {self.pedidos_filtro}", True, (0, 0, 0))
+        titulo_rect = titulo_seccion.get_rect(center=(graf_x + graf_w // 2, graf_y + 30))
+        surface.blit(titulo_seccion, titulo_rect)
+
+        # Área de la tabla con scroll
+        tabla_x = graf_x + 20
+        tabla_y = graf_y + 80
+        tabla_w = graf_w - 60  # Reservar espacio para scroll bar
+        tabla_h = self.pedidos_visible_rows * self.pedidos_row_height + 40  # +40 para encabezados
+        
+        # Definir área de scroll para eventos
+        self.pedidos_scroll_area = pygame.Rect(tabla_x, tabla_y, tabla_w, tabla_h)
+
+        # Crear superficie para el contenido con scroll
+        content_surface = pygame.Surface((tabla_w, len(self.pedidos_datos) * self.pedidos_row_height + 40))
+        content_surface.fill((255, 255, 255))
+
+        # Dibujar encabezados en la superficie de contenido
+        font_titulo = pygame.font.SysFont("Open Sans", int(0.036 * self.alto), bold=True)
+        font_normal = pygame.font.SysFont("Open Sans", int(0.03 * self.alto))
+
+        col_widths = [
+            int(0.07 * tabla_w),  # ID
+            int(0.2 * tabla_w),   # Cliente
+            int(0.13 * tabla_w),  # Fecha Pedido
+            int(0.13 * tabla_w),  # Fecha Entrega
+            int(0.12 * tabla_w),  # Estado
+            int(0.13 * tabla_w),  # Total
+            int(0.12 * tabla_w),  # Días Proceso
+        ]
+        col_headers = ["ID", "Cliente", "Fecha Pedido", "Fecha Entrega", "Estado", "Total", "Días Proceso"]
+
+        # Dibujar encabezados
+        header_y = 0
+        x_pos = 0
+        for i, header in enumerate(col_headers):
+            pygame.draw.rect(content_surface, (220, 220, 255), (x_pos, header_y, col_widths[i], 40))
+            pygame.draw.rect(content_surface, (100, 100, 200), (x_pos, header_y, col_widths[i], 40), 1)
+            texto = font_titulo.render(header, True, (0, 0, 0))
+            rect = texto.get_rect(center=(x_pos + col_widths[i]//2, header_y + 20))
+            content_surface.blit(texto, rect)
+            x_pos += col_widths[i]
+
+        # Dibujar filas de datos
+        row_y = 40
+        for i, pedido in enumerate(self.pedidos_datos):
+            # Color de fondo alternado
+            if i % 2 == 0:
+                pygame.draw.rect(content_surface, (240, 240, 255), (0, row_y, tabla_w, self.pedidos_row_height))
+
+            # Color basado en estado
+            estado_color = (0, 0, 0)
+            if pedido['Estado'] == 'Pendiente':
+                estado_color = (255, 150, 0)  # Naranja para pendiente
+            elif pedido['Estado'] == 'En proceso':
+                estado_color = (0, 150, 255)  # Azul para en proceso
+            elif pedido['Estado'] == 'Listo':
+                estado_color = (0, 150, 0)    # Verde para listo
+            elif pedido['Estado'] == 'Entregado':
+                estado_color = (100, 100, 100)  # Gris para entregado
+
+            # Formatear fechas
+            fecha_pedido = str(pedido['Fecha_pedido'])
+            fecha_entrega = str(pedido['Fecha_entrega'])
+            if len(fecha_pedido) > 10:
+                fecha_pedido = fecha_pedido[:10]
+            if len(fecha_entrega) > 10:
+                fecha_entrega = fecha_entrega[:10]
+
+            # Dibujar datos
+            x_pos = 0
+            cols = ["id", "cliente", "Fecha_pedido", "Fecha_entrega", "Estado", "Total", "dias_proceso"]
+            for j, col in enumerate(cols):
+                if col == "Fecha_pedido":
+                    valor = fecha_pedido
+                elif col == "Fecha_entrega":
+                    valor = fecha_entrega
+                elif col == "Total":
+                    valor = f"${float(pedido.get(col, 0)):.2f}"
+                else:
+                    valor = str(pedido.get(col, ""))
+
+                color = estado_color if col == "Estado" else (0, 0, 0)
+                texto = font_normal.render(valor, True, color)
+                rect = texto.get_rect(midleft=(x_pos + 10, row_y + self.pedidos_row_height // 2))
+                content_surface.blit(texto, rect)
+                x_pos += col_widths[j]
+
+            row_y += self.pedidos_row_height
+
+        # Dibujar la parte visible del contenido
+        visible_rect = pygame.Rect(0, self.pedidos_scroll_y, tabla_w, tabla_h)
+        surface.blit(content_surface, (tabla_x, tabla_y), visible_rect)
+
+        # Dibujar barra de scroll si es necesaria
+        if self.pedidos_scroll_max > 0:
+            self.dibujar_scroll_bar(surface, tabla_x + tabla_w, tabla_y, tabla_h,
+                                   self.pedidos_scroll_y, self.pedidos_scroll_max, "pedidos")
+
+        # Estadísticas de pedidos
+        pedidos_pendientes = sum(1 for p in self.pedidos_datos if p['Estado'] == 'Pendiente' or p['Estado'] == 'En proceso')
+        pedidos_listos = sum(1 for p in self.pedidos_datos if p['Estado'] == 'Listo')
+        pedidos_entregados = sum(1 for p in self.pedidos_datos if p['Estado'] == 'Entregado')
+
+        resumen_font = pygame.font.SysFont("Open Sans", int(0.03 * self.alto))
+        resumen_texto = resumen_font.render(
+            f"Total: {len(self.pedidos_datos)} | Pendientes: {pedidos_pendientes} | Listos: {pedidos_listos} | Entregados: {pedidos_entregados}",
+            True, (50, 50, 120)
+        )
+        rect = resumen_texto.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 40))
+        surface.blit(resumen_texto, rect)
+
+        # Pie de página
+        pie_pedidos = self.fuente_pie_pagina.render("Reporte de Pedidos", True, (50, 50, 120))
+        pie_rect = pie_pedidos.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 15))
+        surface.blit(pie_pedidos, pie_rect)
+
+    def dibujar_scroll_bar(self, surface, x, y, height, scroll_y, scroll_max, tipo):
+        """
+        Dibuja una barra de scroll vertical.
+        
+        :param surface: Superficie donde dibujar
+        :param x: Posición X de la barra
+        :param y: Posición Y de la barra
+        :param height: Altura total de la barra
+        :param scroll_y: Posición actual del scroll
+        :param scroll_max: Máximo scroll posible
+        :param tipo: Tipo de scroll ("inventario" o "pedidos")
+        """
+        # Fondo de la barra de scroll
+        scroll_rect = pygame.Rect(x, y, self.scroll_bar_width, height)
+        pygame.draw.rect(surface, (230, 230, 230), scroll_rect)
+        pygame.draw.rect(surface, (180, 180, 180), scroll_rect, 1)
+
+        # Calcular posición y tamaño del handle
+        if scroll_max > 0:
+            handle_ratio = height / (scroll_max + height)
+            handle_height = max(self.scroll_handle_height, int(height * handle_ratio))
+            
+            # Posición del handle basada en el scroll actual
+            handle_y_ratio = scroll_y / scroll_max if scroll_max > 0 else 0
+            handle_y = y + int((height - handle_height) * handle_y_ratio)
+            
+            # Dibujar handle
+            handle_rect = pygame.Rect(x + 2, handle_y, self.scroll_bar_width - 4, handle_height)
+            pygame.draw.rect(surface, (150, 150, 150), handle_rect, border_radius=5)
+            pygame.draw.rect(surface, (100, 100, 100), handle_rect, 1, border_radius=5)
+            
+            # Guardar rect del handle para detectar clics
+            if tipo == "inventario":
+                self.inventario_scroll_handle = handle_rect
+            elif tipo == "pedidos":
+                self.pedidos_scroll_handle = handle_rect
 
     def _get_grafica_area(self):
         """
@@ -687,33 +1064,43 @@ class reporte:
 
         graf_x, graf_y, graf_w, graf_h = self._get_grafica_area()
 
+        # Ajustar área para dejar espacio al selector de fecha
+        contenido_y = graf_y + int(0.12 * graf_h)  # Dejar espacio para el selector
+        contenido_h = graf_h - int(0.12 * graf_h)
+
         # Fondo principal
-        pygame.draw.rect(surface, (255, 255, 255), (graf_x, graf_y, graf_w, graf_h), border_radius=12)
-        pygame.draw.rect(surface, (200, 200, 200), (graf_x, graf_y, graf_w, graf_h), 2, border_radius=12)
+        fondo_rect = pygame.Rect(graf_x, contenido_y, graf_w, contenido_h)
+        pygame.draw.rect(surface, (255, 255, 255), fondo_rect, border_radius=12)
+        pygame.draw.rect(surface, (200, 200, 200), fondo_rect, 2, border_radius=12)
 
         # Si no hay ventas
         if not self.corte_caja_datos or not self.corte_caja_datos['ventas'] or float(self.corte_caja_datos['ventas']['total_ventas'] or 0) == 0:
             font = pygame.font.SysFont("Open Sans", int(0.045 * self.alto))
             msg = font.render(f"No hay datos de ventas para el día {self.fecha_seleccionada}.", True, (180, 0, 0))
-            surface.blit(msg, (graf_x + graf_w//4, graf_y + graf_h // 2))
+            msg_rect = msg.get_rect(center=(graf_x + graf_w//2, contenido_y + contenido_h // 2))
+            surface.blit(msg, msg_rect)
 
             # Pie de página
             pie_corte = self.fuente_pie_pagina.render("Corte de Caja", True, (50, 50, 120))
-            pie_rect = pie_corte.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 15))
+            pie_rect = pie_corte.get_rect(center=(graf_x + graf_w // 2, contenido_y + contenido_h - 15))
             surface.blit(pie_corte, pie_rect)
             return
 
         # Título de la sección
-        fecha_formateada = datetime.datetime.strptime(self.fecha_seleccionada, '%Y-%m-%d').strftime('%d/%m/%Y')
+        try:
+            fecha_formateada = datetime.datetime.strptime(self.fecha_seleccionada, '%Y-%m-%d').strftime('%d/%m/%Y')
+        except:
+            fecha_formateada = self.fecha_seleccionada
+            
         titulo_seccion = self.fuente_titulo.render(f"Corte de Caja - {fecha_formateada}", True, (0, 0, 0))
-        titulo_rect = titulo_seccion.get_rect(center=(graf_x + graf_w // 2, graf_y + 30))
+        titulo_rect = titulo_seccion.get_rect(center=(graf_x + graf_w // 2, contenido_y + 30))
         surface.blit(titulo_seccion, titulo_rect)
 
         # División de pantalla: izquierda resumen, derecha gráfico
         mitad_ancho = graf_w // 2
 
         # Resumen de ventas - Lado izquierdo
-        y_pos = graf_y + 80
+        y_pos = contenido_y + 80
         font_titulo = pygame.font.SysFont("Open Sans", int(0.04 * self.alto), bold=True)
         font_normal = pygame.font.SysFont("Open Sans", int(0.035 * self.alto))
 
@@ -755,13 +1142,13 @@ class reporte:
         if self.metodos_pago:
             # Título
             titulo_estados = font_titulo.render("Ventas por Estado", True, (0, 0, 100))
-            titulo_rect = titulo_estados.get_rect(center=(graf_x + mitad_ancho + mitad_ancho // 2, graf_y + 80))
+            titulo_rect = titulo_estados.get_rect(center=(graf_x + mitad_ancho + mitad_ancho // 2, contenido_y + 80))
             surface.blit(titulo_estados, titulo_rect)
 
             # Gráfico pastel para estados
             centro_x = graf_x + mitad_ancho + mitad_ancho // 2
-            centro_y = graf_y + 180
-            radio = 100
+            centro_y = contenido_y + 180
+            radio = 80  # Reducido un poco para que quepa mejor
 
             total_estados = sum([monto for _, monto in self.metodos_pago])
 
@@ -784,16 +1171,16 @@ class reporte:
             leyenda_y = centro_y + radio + 20
             for i, (estado, monto) in enumerate(self.metodos_pago):
                 color = colores[i % len(colores)]
-                pygame.draw.rect(surface, color, (centro_x - 100, leyenda_y + i * 30, 20, 20))
+                pygame.draw.rect(surface, color, (centro_x - 100, leyenda_y + i * 25, 15, 15))
                 porcentaje = monto / total_estados * 100
                 texto = f"{estado}: ${monto:.2f} ({porcentaje:.1f}%)"
                 lbl = font_normal.render(texto, True, (0, 0, 0))
-                surface.blit(lbl, (centro_x - 70, leyenda_y + i * 30))
+                surface.blit(lbl, (centro_x - 80, leyenda_y + i * 25))
 
         # Productos más vendidos del día
         if self.corte_caja_datos['productos']:
             titulo_productos = font_titulo.render("Productos más vendidos del día", True, (0, 0, 100))
-            y_productos = graf_y + graf_h - 220
+            y_productos = contenido_y + contenido_h - 180
             titulo_rect = titulo_productos.get_rect(center=(graf_x + graf_w // 2, y_productos))
             surface.blit(titulo_productos, titulo_rect)
 
@@ -819,312 +1206,24 @@ class reporte:
                 texto_cantidad = font_normal.render(str(producto['cantidad']), True, (0, 0, 0))
                 texto_total = font_normal.render(f"${float(producto['total']):.2f}", True, (0, 0, 0))
 
-                surface.blit(texto_nombre, (x_nombre, y_pos + i * 30))
-                surface.blit(texto_cantidad, (x_cantidad, y_pos + i * 30))
-                surface.blit(texto_total, (x_total, y_pos + i * 30))
+                surface.blit(texto_nombre, (x_nombre, y_pos + i * 25))
+                surface.blit(texto_cantidad, (x_cantidad, y_pos + i * 25))
+                surface.blit(texto_total, (x_total, y_pos + i * 25))
 
         # Pie de página
         pie_corte = self.fuente_pie_pagina.render("Corte de Caja", True, (50, 50, 120))
-        pie_rect = pie_corte.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 15))
+        pie_rect = pie_corte.get_rect(center=(graf_x + graf_w // 2, contenido_y + contenido_h - 15))
         surface.blit(pie_corte, pie_rect)
-
-    def dibujar_inventario(self, surface):
-        """
-        Dibuja el reporte de inventario en la superficie proporcionada.
-
-        :param surface: Superficie de Pygame donde se dibujará el reporte de inventario.
-        """
-        # Si no hay datos, cargarlos
-        if not self.inventario_datos:
-            self.cargar_inventario()
-
-        graf_x, graf_y, graf_w, graf_h = self._get_grafica_area()
-
-        # Ajustar Y para dejar espacio a los filtros
-        graf_y += 40
-        graf_h -= 40
-
-        # Fondo principal
-        pygame.draw.rect(surface, (255, 255, 255), (graf_x, graf_y, graf_w, graf_h), border_radius=12)
-        pygame.draw.rect(surface, (200, 200, 200), (graf_x, graf_y, graf_w, graf_h), 2, border_radius=12)
-
-        # Si no hay inventario
-        if not self.inventario_datos:
-            font = pygame.font.SysFont("Open Sans", int(0.045 * self.alto))
-            msg = font.render(f"No hay datos de inventario con el filtro actual.", True, (180, 0, 0))
-            surface.blit(msg, (graf_x + graf_w//4, graf_y + graf_h // 2))
-
-            # Pie de página
-            pie_inventario = self.fuente_pie_pagina.render("Reporte de Inventario", True, (50, 50, 120))
-            pie_rect = pie_inventario.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 15))
-            surface.blit(pie_inventario, pie_rect)
-            return
-
-        # Título de la sección
-        titulo_seccion = self.fuente_titulo.render(f"Inventario - {self.inventario_filtro}", True, (0, 0, 0))
-        titulo_rect = titulo_seccion.get_rect(center=(graf_x + graf_w // 2, graf_y + 30))
-        surface.blit(titulo_seccion, titulo_rect)
-
-        # Encabezados de la tabla
-        y_pos = graf_y + 80
-        font_titulo = pygame.font.SysFont("Open Sans", int(0.04 * self.alto), bold=True)
-        font_normal = pygame.font.SysFont("Open Sans", int(0.035 * self.alto))
-
-        # Crear columnas
-        col_widths = [int(0.1 * graf_w), int(0.35 * graf_w), int(0.15 * graf_w), int(0.15 * graf_w), int(0.25 * graf_w)]
-        col_headers = ["ID", "Nombre", "Stock", "Unidad", "Tipo"]
-
-        # Dibujar encabezados
-        x_pos = graf_x + 20
-        for i, header in enumerate(col_headers):
-            pygame.draw.rect(surface, (220, 220, 255), (x_pos, y_pos, col_widths[i], 40))
-            pygame.draw.rect(surface, (100, 100, 200), (x_pos, y_pos, col_widths[i], 40), 1)
-            texto = font_titulo.render(header, True, (0, 0, 0))
-            rect = texto.get_rect(center=(x_pos + col_widths[i]//2, y_pos + 20))
-            surface.blit(texto, rect)
-            x_pos += col_widths[i]
-
-        # Calcular elementos a mostrar según paginación
-        items_per_page = self.inventario_items_por_pagina
-        start_idx = self.inventario_pagina_actual * items_per_page
-        end_idx = min(start_idx + items_per_page, len(self.inventario_datos))
-
-        # Dibujar filas
-        y_pos += 40
-        for i, item in enumerate(self.inventario_datos[start_idx:end_idx]):
-            # Color de fondo alternado
-            if i % 2 == 0:
-                pygame.draw.rect(surface, (240, 240, 255), (graf_x + 20, y_pos, sum(col_widths), 40))
-
-            # Color rojo para stock bajo o agotado
-            stock_color = (0, 0, 0)
-            if item['Stock'] == 0:
-                stock_color = (255, 0, 0)  # Rojo para agotado
-            elif item['Stock'] <= 10:
-                stock_color = (255, 150, 0)  # Naranja para bajo
-
-            # Dibujar datos
-            x_pos = graf_x + 20
-            cols = ["id", "Nombre", "Stock", "Unidad", "Tipo"]
-            for j, col in enumerate(cols):
-                valor = str(item.get(col, ""))
-                texto = font_normal.render(valor, True, stock_color if col == "Stock" else (0, 0, 0))
-                rect = texto.get_rect(midleft=(x_pos + 10, y_pos + 20))
-                surface.blit(texto, rect)
-                x_pos += col_widths[j]
-
-            y_pos += 40
-
-        # Botones de navegación
-        if len(self.inventario_datos) > items_per_page:
-            # Texto de paginación
-            pagina_texto = font_normal.render(
-                f"Página {self.inventario_pagina_actual + 1} de {(len(self.inventario_datos) - 1) // items_per_page + 1}",
-                True, (0, 0, 0)
-            )
-            rect = pagina_texto.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 40))
-            surface.blit(pagina_texto, rect)
-
-            # Botón anterior
-            if self.inventario_pagina_actual > 0:
-                pygame.draw.rect(surface, (220, 220, 220), self.boton_anterior_pagina, border_radius=8)
-                texto = font_normal.render("Anterior", True, (0, 0, 0))
-                rect = texto.get_rect(center=self.boton_anterior_pagina.center)
-                surface.blit(texto, rect)
-
-            # Botón siguiente
-            if end_idx < len(self.inventario_datos):
-                pygame.draw.rect(surface, (220, 220, 220), self.boton_siguiente_pagina, border_radius=8)
-                texto = font_normal.render("Siguiente", True, (0, 0, 0))
-                rect = texto.get_rect(center=self.boton_siguiente_pagina.center)
-                surface.blit(texto, rect)
-
-        # Estadísticas de inventario - pequeño resumen
-        items_agotados = sum(1 for item in self.inventario_datos if item['Stock'] == 0)
-        items_bajos = sum(1 for item in self.inventario_datos if 0 < item['Stock'] <= 10)
-
-        resumen_font = pygame.font.SysFont("Open Sans", int(0.03 * self.alto))
-        resumen_texto = resumen_font.render(
-            f"Total de items: {len(self.inventario_datos)} | Agotados: {items_agotados} | Stock bajo: {items_bajos}",
-            True, (50, 50, 120)
-        )
-        rect = resumen_texto.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 70))
-        surface.blit(resumen_texto, rect)
-
-        # Pie de página
-        pie_inventario = self.fuente_pie_pagina.render("Reporte de Inventario", True, (50, 50, 120))
-        pie_rect = pie_inventario.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 15))
-        surface.blit(pie_inventario, pie_rect)
-
-    def dibujar_pedidos(self, surface):
-        """
-        Dibuja el reporte de pedidos en la superficie proporcionada.
-
-        :param surface: Superficie de Pygame donde se dibujará el reporte de pedidos.
-        """
-        # Si no hay datos, cargarlos
-        if not self.pedidos_datos:
-            self.cargar_pedidos()
-
-        graf_x, graf_y, graf_w, graf_h = self._get_grafica_area()
-
-        # Ajustar Y para dejar espacio a los filtros
-        graf_y += 40
-        graf_h -= 40
-
-        # Fondo principal
-        pygame.draw.rect(surface, (255, 255, 255), (graf_x, graf_y, graf_w, graf_h), border_radius=12)
-        pygame.draw.rect(surface, (200, 200, 200), (graf_x, graf_y, graf_w, graf_h), 2, border_radius=12)
-
-        # Si no hay pedidos
-        if not self.pedidos_datos:
-            font = pygame.font.SysFont("Open Sans", int(0.045 * self.alto))
-            msg = font.render(f"No hay datos de pedidos con el filtro actual.", True, (180, 0, 0))
-            surface.blit(msg, (graf_x + graf_w//4, graf_y + graf_h // 2))
-
-            # Pie de página
-            pie_pedidos = self.fuente_pie_pagina.render("Reporte de Pedidos", True, (50, 50, 120))
-            pie_rect = pie_pedidos.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 15))
-            surface.blit(pie_pedidos, pie_rect)
-            return
-
-        # Título de la sección
-        titulo_seccion = self.fuente_titulo.render(f"Pedidos - {self.pedidos_filtro}", True, (0, 0, 0))
-        titulo_rect = titulo_seccion.get_rect(center=(graf_x + graf_w // 2, graf_y + 30))
-        surface.blit(titulo_seccion, titulo_rect)
-
-        # Encabezados de la tabla
-        y_pos = graf_y + 80
-        font_titulo = pygame.font.SysFont("Open Sans", int(0.036 * self.alto), bold=True)
-        font_normal = pygame.font.SysFont("Open Sans", int(0.03 * self.alto))
-
-        # Crear columnas (ajustamos para que quepan todas)
-        col_widths = [
-            int(0.07 * graf_w),  # ID
-            int(0.2 * graf_w),   # Cliente
-            int(0.13 * graf_w),  # Fecha Pedido
-            int(0.13 * graf_w),  # Fecha Entrega
-            int(0.12 * graf_w),  # Estado
-            int(0.13 * graf_w),  # Total
-            int(0.12 * graf_w),  # Días Proceso
-        ]
-        col_headers = ["ID", "Cliente", "Fecha Pedido", "Fecha Entrega", "Estado", "Total", "Días Proceso"]
-
-        # Dibujar encabezados
-        x_pos = graf_x + 20
-        for i, header in enumerate(col_headers):
-            pygame.draw.rect(surface, (220, 220, 255), (x_pos, y_pos, col_widths[i], 40))
-            pygame.draw.rect(surface, (100, 100, 200), (x_pos, y_pos, col_widths[i], 40), 1)
-            texto = font_titulo.render(header, True, (0, 0, 0))
-            rect = texto.get_rect(center=(x_pos + col_widths[i]//2, y_pos + 20))
-            surface.blit(texto, rect)
-            x_pos += col_widths[i]
-
-        # Calcular elementos a mostrar según paginación
-        items_per_page = self.pedidos_items_por_pagina
-        start_idx = self.pedidos_pagina_actual * items_per_page
-        end_idx = min(start_idx + items_per_page, len(self.pedidos_datos))
-
-        # Dibujar filas
-        y_pos += 40
-        for i, pedido in enumerate(self.pedidos_datos[start_idx:end_idx]):
-            # Color de fondo alternado
-            if i % 2 == 0:
-                pygame.draw.rect(surface, (240, 240, 255), (graf_x + 20, y_pos, sum(col_widths), 40))
-
-            # Color basado en estado
-            estado_color = (0, 0, 0)
-            if pedido['Estado'] == 'Pendiente':
-                estado_color = (255, 150, 0)  # Naranja para pendiente
-            elif pedido['Estado'] == 'En proceso':
-                estado_color = (0, 150, 255)  # Azul para en proceso
-            elif pedido['Estado'] == 'Listo':
-                estado_color = (0, 150, 0)    # Verde para listo
-            elif pedido['Estado'] == 'Entregado':
-                estado_color = (100, 100, 100)  # Gris para entregado
-
-            # Formateamos fechas para mostrar
-            fecha_pedido = str(pedido['Fecha_pedido'])
-            fecha_entrega = str(pedido['Fecha_entrega'])
-            if len(fecha_pedido) > 10:
-                fecha_pedido = fecha_pedido[:10]  # Solo YYYY-MM-DD
-            if len(fecha_entrega) > 10:
-                fecha_entrega = fecha_entrega[:10]  # Solo YYYY-MM-DD
-
-            # Dibujar datos
-            x_pos = graf_x + 20
-            cols = ["id", "cliente", "Fecha_pedido", "Fecha_entrega", "Estado", "Total", "dias_proceso"]
-            for j, col in enumerate(cols):
-                if col == "Fecha_pedido":
-                    valor = fecha_pedido
-                elif col == "Fecha_entrega":
-                    valor = fecha_entrega
-                elif col == "Total":
-                    valor = f"${float(pedido.get(col, 0)):.2f}"
-                else:
-                    valor = str(pedido.get(col, ""))
-
-                # Color específico según el estado
-                color = estado_color if col == "Estado" else (0, 0, 0)
-                texto = font_normal.render(valor, True, color)
-                rect = texto.get_rect(midleft=(x_pos + 10, y_pos + 20))
-                surface.blit(texto, rect)
-                x_pos += col_widths[j]
-
-            y_pos += 40
-
-        # Botones de navegación
-        if len(self.pedidos_datos) > items_per_page:
-            # Texto de paginación
-            pagina_texto = font_normal.render(
-                f"Página {self.pedidos_pagina_actual + 1} de {(len(self.pedidos_datos) - 1) // items_per_page + 1}",
-                True, (0, 0, 0)
-            )
-            rect = pagina_texto.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 40))
-            surface.blit(pagina_texto, rect)
-
-            # Botón anterior
-            if self.pedidos_pagina_actual > 0:
-                pygame.draw.rect(surface, (220, 220, 220), self.boton_anterior_pagina_pedidos, border_radius=8)
-                texto = font_normal.render("Anterior", True, (0, 0, 0))
-                rect = texto.get_rect(center=self.boton_anterior_pagina_pedidos.center)
-                surface.blit(texto, rect)
-
-            # Botón siguiente
-            if end_idx < len(self.pedidos_datos):
-                pygame.draw.rect(surface, (220, 220, 220), self.boton_siguiente_pagina_pedidos, border_radius=8)
-                texto = font_normal.render("Siguiente", True, (0, 0, 0))
-                rect = texto.get_rect(center=self.boton_siguiente_pagina_pedidos.center)
-                surface.blit(texto, rect)
-
-        # Estadísticas de pedidos - pequeño resumen
-        pedidos_pendientes = sum(1 for p in self.pedidos_datos if p['Estado'] == 'Pendiente' or p['Estado'] == 'En proceso')
-        pedidos_listos = sum(1 for p in self.pedidos_datos if p['Estado'] == 'Listo')
-        pedidos_entregados = sum(1 for p in self.pedidos_datos if p['Estado'] == 'Entregado')
-
-        resumen_font = pygame.font.SysFont("Open Sans", int(0.03 * self.alto))
-        resumen_texto = resumen_font.render(
-            f"Total de pedidos: {len(self.pedidos_datos)} | Pendientes: {pedidos_pendientes} | Listos: {pedidos_listos} | Entregados: {pedidos_entregados}",
-            True, (50, 50, 120)
-        )
-        rect = resumen_texto.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 70))
-        surface.blit(resumen_texto, rect)
-
-        # Pie de página
-        pie_pedidos = self.fuente_pie_pagina.render("Reporte de Pedidos", True, (50, 50, 120))
-        pie_rect = pie_pedidos.get_rect(center=(graf_x + graf_w // 2, graf_y + graf_h - 15))
-        surface.blit(pie_pedidos, pie_rect)
 
     def handle_event(self, event):
         """
-        Maneja los eventos de la interfaz, como clics en botones.
-
-        :param event: Evento de Pygame a manejar.
+        Maneja los eventos de la interfaz, como clics en botones y scroll.
+        VERSIÓN CORREGIDA para manejar mejor los eventos del selector de fecha.
         """
         if event.type == pygame.MOUSEBUTTONDOWN:
             mouse_pos = event.pos
 
-            # Verificar clics en botones de opciones
+            # Verificar clics en botones de opciones PRIMERO
             for i, rect in enumerate(self.boton_rects):
                 if rect and rect.collidepoint(mouse_pos):
                     self.opcion_seleccionada = self.botones_opciones[i]
@@ -1142,85 +1241,135 @@ class reporte:
                         self.cargar_pedidos()
                     return
 
-            # Verificar clic en botón agregar
-            if self.boton_agregar_rect and self.boton_agregar_rect.collidepoint(mouse_pos):
-                self.on_agregar_click()
-                return
-
             # Verificar clic en botón PDF
             if self.boton_pdf_rect and self.boton_pdf_rect.collidepoint(mouse_pos):
                 self.descargar_pdf()
                 return
 
-            # Verificar clic en selector de fecha o botones de cambio de fecha (solo en CORTE CAJA)
+            # Verificar eventos específicos según la sección actual
             if self.opcion_seleccionada == "CORTE CAJA":
-                if self.selector_fecha_rect.collidepoint(mouse_pos):
-                    self.selector_fecha_activo = True
+                # Manejar eventos del selector de fecha SOLO si estamos en corte de caja
+                if self.selector_fecha_rect and self.selector_fecha_rect.collidepoint(mouse_pos):
+                    self.selector_fecha_activo = not self.selector_fecha_activo
+                    print(f"Selector de fecha {'activado' if self.selector_fecha_activo else 'desactivado'}")
                     return
 
-                if self.boton_fecha_anterior.collidepoint(mouse_pos):
+                if self.boton_fecha_anterior and self.boton_fecha_anterior.collidepoint(mouse_pos):
                     # Cambiar a día anterior
-                    fecha_actual = datetime.datetime.strptime(self.fecha_seleccionada, '%Y-%m-%d')
-                    dia_anterior = fecha_actual - datetime.timedelta(days=1)
-                    self.fecha_seleccionada = dia_anterior.strftime('%Y-%m-%d')
-                    self.cargar_corte_caja(self.fecha_seleccionada)
-                    return
-
-                if self.boton_fecha_siguiente.collidepoint(mouse_pos):
-                    # Cambiar a día siguiente
-                    fecha_actual = datetime.datetime.strptime(self.fecha_seleccionada, '%Y-%m-%d')
-                    dia_siguiente = fecha_actual + datetime.timedelta(days=1)
-                    # No permitir seleccionar fechas futuras
-                    if dia_siguiente.date() <= datetime.datetime.now().date():
-                        self.fecha_seleccionada = dia_siguiente.strftime('%Y-%m-%d')
+                    try:
+                        fecha_actual = datetime.datetime.strptime(self.fecha_seleccionada, '%Y-%m-%d')
+                        dia_anterior = fecha_actual - datetime.timedelta(days=1)
+                        self.fecha_seleccionada = dia_anterior.strftime('%Y-%m-%d')
+                        print(f"Fecha cambiada a: {self.fecha_seleccionada}")
                         self.cargar_corte_caja(self.fecha_seleccionada)
+                    except Exception as e:
+                        print(f"Error al cambiar fecha anterior: {e}")
                     return
 
-            # Verificar clic en filtros de inventario
+                if self.boton_fecha_siguiente and self.boton_fecha_siguiente.collidepoint(mouse_pos):
+                    # Cambiar a día siguiente
+                    try:
+                        fecha_actual = datetime.datetime.strptime(self.fecha_seleccionada, '%Y-%m-%d')
+                        dia_siguiente = fecha_actual + datetime.timedelta(days=1)
+                        # No permitir seleccionar fechas futuras
+                        if dia_siguiente.date() <= datetime.datetime.now().date():
+                            self.fecha_seleccionada = dia_siguiente.strftime('%Y-%m-%d')
+                            print(f"Fecha cambiada a: {self.fecha_seleccionada}")
+                            self.cargar_corte_caja(self.fecha_seleccionada)
+                        else:
+                            print("No se puede seleccionar una fecha futura")
+                    except Exception as e:
+                        print(f"Error al cambiar fecha siguiente: {e}")
+                    return
+
             elif self.opcion_seleccionada == "INVENTARIO":
+                # Manejar eventos de inventario
                 for i, rect in enumerate(self.botones_filtro_inventario):
                     if rect.collidepoint(mouse_pos):
                         self.inventario_filtro = self.filtros_inventario[i]
-                        self.inventario_pagina_actual = 0  # Reiniciar paginación
                         self.cargar_inventario()
                         return
 
-                # Verificar clic en botones de paginación
-                if self.boton_anterior_pagina.collidepoint(mouse_pos) and self.inventario_pagina_actual > 0:
-                    self.inventario_pagina_actual -= 1
+                # Verificar clic en barra de scroll de inventario
+                if hasattr(self, 'inventario_scroll_handle') and self.inventario_scroll_handle.collidepoint(mouse_pos):
+                    self.dragging_scroll = True
+                    self.drag_offset = mouse_pos[1] - self.inventario_scroll_handle.y
+                    self.drag_type = "inventario"
                     return
 
-                if self.boton_siguiente_pagina.collidepoint(mouse_pos):
-                    items_per_page = self.inventario_items_por_pagina
-                    if (self.inventario_pagina_actual + 1) * items_per_page < len(self.inventario_datos):
-                        self.inventario_pagina_actual += 1
-                    return
-
-            # Verificar clic en filtros de pedidos
             elif self.opcion_seleccionada == "PEDIDOS":
+                # Manejar eventos de pedidos
                 for i, rect in enumerate(self.botones_filtro_pedidos):
                     if rect.collidepoint(mouse_pos):
                         self.pedidos_filtro = self.filtros_pedidos[i]
-                        self.pedidos_pagina_actual = 0  # Reiniciar paginación
                         self.cargar_pedidos()
                         return
 
-                # Verificar clic en botones de paginación
-                if self.boton_anterior_pagina_pedidos.collidepoint(mouse_pos) and self.pedidos_pagina_actual > 0:
-                    self.pedidos_pagina_actual -= 1
+                # Verificar clic en barra de scroll de pedidos
+                if hasattr(self, 'pedidos_scroll_handle') and self.pedidos_scroll_handle.collidepoint(mouse_pos):
+                    self.dragging_scroll = True
+                    self.drag_offset = mouse_pos[1] - self.pedidos_scroll_handle.y
+                    self.drag_type = "pedidos"
                     return
 
-                if self.boton_siguiente_pagina_pedidos.collidepoint(mouse_pos):
-                    items_per_page = self.pedidos_items_por_pagina
-                    if (self.pedidos_pagina_actual + 1) * items_per_page < len(self.pedidos_datos):
-                        self.pedidos_pagina_actual += 1
-                    return
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if self.dragging_scroll:
+                self.dragging_scroll = False
 
         elif event.type == pygame.MOUSEMOTION:
             mouse_pos = event.pos
-            self.agregar_hover = self.boton_agregar_rect and self.boton_agregar_rect.collidepoint(mouse_pos)
             self.pdf_hover = self.boton_pdf_rect and self.boton_pdf_rect.collidepoint(mouse_pos)
 
+            # Manejar arrastre de scroll
+            if self.dragging_scroll:
+                if hasattr(self, 'drag_type') and self.drag_type == "inventario":
+                    # Lógica de scroll para inventario (sin cambios)
+                    graf_x, graf_y, graf_w, graf_h = self._get_grafica_area()
+                    tabla_y = graf_y + 120
+                    tabla_h = self.inventario_visible_rows * self.inventario_row_height + 40
+                    
+                    new_handle_y = mouse_pos[1] - self.drag_offset
+                    handle_min_y = tabla_y
+                    handle_max_y = tabla_y + tabla_h - self.scroll_handle_height
+                    
+                    new_handle_y = max(handle_min_y, min(new_handle_y, handle_max_y))
+                    
+                    if handle_max_y > handle_min_y:
+                        ratio = (new_handle_y - handle_min_y) / (handle_max_y - handle_min_y)
+                        self.inventario_scroll_y = int(ratio * self.inventario_scroll_max)
+                        
+                elif hasattr(self, 'drag_type') and self.drag_type == "pedidos":
+                    # Lógica de scroll para pedidos (sin cambios)
+                    graf_x, graf_y, graf_w, graf_h = self._get_grafica_area()
+                    tabla_y = graf_y + 120
+                    tabla_h = self.pedidos_visible_rows * self.pedidos_row_height + 40
+                    
+                    new_handle_y = mouse_pos[1] - self.drag_offset
+                    handle_min_y = tabla_y
+                    handle_max_y = tabla_y + tabla_h - self.scroll_handle_height
+                    
+                    new_handle_y = max(handle_min_y, min(new_handle_y, handle_max_y))
+                    
+                    if handle_max_y > handle_min_y:
+                        ratio = (new_handle_y - handle_min_y) / (handle_max_y - handle_min_y)
+                        self.pedidos_scroll_y = int(ratio * self.pedidos_scroll_max)
+
+        elif event.type == pygame.MOUSEWHEEL:
+            # Manejar scroll con rueda del mouse
+            if self.opcion_seleccionada == "INVENTARIO" and self.inventario_scroll_area:
+                mouse_pos = pygame.mouse.get_pos()
+                if self.inventario_scroll_area.collidepoint(mouse_pos):
+                    scroll_delta = -event.y * self.inventario_scroll_speed
+                    self.inventario_scroll_y = max(0, min(self.inventario_scroll_y + scroll_delta, self.inventario_scroll_max))
+                    return
+                    
+            elif self.opcion_seleccionada == "PEDIDOS" and self.pedidos_scroll_area:
+                mouse_pos = pygame.mouse.get_pos()
+                if self.pedidos_scroll_area.collidepoint(mouse_pos):
+                    scroll_delta = -event.y * self.pedidos_scroll_speed
+                    self.pedidos_scroll_y = max(0, min(self.pedidos_scroll_y + scroll_delta, self.pedidos_scroll_max))
+                    return
+            
     def on_agregar_click(self):
         """
         Maneja el evento de clic en el botón de agregar.
@@ -1353,9 +1502,7 @@ class reporte:
         datos_resumen = [
             ["Concepto", "Valor"],
             ["Cantidad de Ventas", f"{self.corte_caja_datos['ventas']['num_ventas']}"],
-            ["Total de Ventas", f"${float(self.corte_caja_datos['ventas']['total_ventas'] or 0):.2f}"],
-            ["Saldo Inicial", f"${self.corte_caja_datos['saldo_inicial']:.2f}"],
-            ["Saldo Final", f"${self.corte_caja_datos['saldo_final']:.2f}"]
+            ["Total de Ventas", f"${float(self.corte_caja_datos['ventas']['total_ventas'] or 0):.2f}"]
         ]
 
         tabla_resumen = Table(datos_resumen, colWidths=[300, 200])
@@ -1369,76 +1516,6 @@ class reporte:
         ]))
         elements.append(tabla_resumen)
         elements.append(Paragraph(" ", styles['Normal']))  # Espacio
-
-        # Datos de métodos de pago
-        if self.corte_caja_datos['metodos_pago']:
-            elements.append(Paragraph("Métodos de Pago:", styles['Heading2']))
-
-            datos_metodos = [["Método", "Cantidad", "Total"]]
-            for metodo in self.corte_caja_datos['metodos_pago']:
-                datos_metodos.append([
-                    metodo['MetodoPago'],
-                    f"{metodo['cantidad']}",
-                    f"${float(metodo['total']):.2f}"
-                ])
-
-            tabla_metodos = Table(datos_metodos, colWidths=[200, 150, 150])
-            tabla_metodos.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (2, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (2, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (2, 0), 'CENTER'),
-                ('FONTNAME', (0, 0), (2, 0), 'Helvetica-Bold'),
-                ('BACKGROUND', (0, 1), (2, -1), colors.beige),
-                ('GRID', (0, 0), (2, -1), 1, colors.black)
-            ]))
-            elements.append(tabla_metodos)
-            elements.append(Paragraph(" ", styles['Normal']))  # Espacio
-
-        # Datos de gastos
-        if self.corte_caja_datos['gastos']:
-            elements.append(Paragraph("Gastos:", styles['Heading2']))
-
-            datos_gastos = [["Concepto", "Monto"]]
-            for gasto in self.corte_caja_datos['gastos']:
-                datos_gastos.append([
-                    gasto['Concepto'],
-                    f"${float(gasto['Monto']):.2f}"
-                ])
-
-            tabla_gastos = Table(datos_gastos, colWidths=[300, 200])
-            tabla_gastos.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (1, 0), 'CENTER'),
-                ('FONTNAME', (0, 0), (1, 0), 'Helvetica-Bold'),
-                ('BACKGROUND', (0, 1), (1, -1), colors.beige),
-                ('GRID', (0, 0), (1, -1), 1, colors.black)
-            ]))
-            elements.append(tabla_gastos)
-            elements.append(Paragraph(" ", styles['Normal']))  # Espacio
-
-        # Datos de productos vendidos
-        if self.corte_caja_datos['productos']:
-            elements.append(Paragraph("Productos Vendidos:", styles['Heading2']))
-
-            datos_productos = [["Producto", "Cantidad", "Total"]]
-            for producto in self.corte_caja_datos['productos']:
-                datos_productos.append([
-                    producto['Nombre_prod'],
-                    f"{producto['cantidad']}",
-                    f"${float(producto['total']):.2f}"
-                ])
-
-            tabla_productos = Table(datos_productos, colWidths=[250, 100, 150])
-            tabla_productos.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (2, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (2, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (2, 0), 'CENTER'),
-                ('FONTNAME', (0, 0), (2, 0), 'Helvetica-Bold'),
-                ('BACKGROUND', (0, 1), (2, -1), colors.beige),
-                ('GRID', (0, 0), (2, -1), 1, colors.black)
-            ]))
-            elements.append(tabla_productos)
 
         # Generar el PDF
         doc.build(elements)
@@ -1467,8 +1544,8 @@ class reporte:
         elements.append(Spacer(1, 20))
 
         # Resumen
-        items_agotados = sum(1 for item in self.inventario_datos if item['Stock'] == 0)
-        items_bajos = sum(1 for item in self.inventario_datos if 0 < item['Stock'] <= 10)
+        items_agotados = sum(1 for item in self.inventario_datos if item['stock_minimo'] == 0)
+        items_bajos = sum(1 for item in self.inventario_datos if 0 < item['stock_minimo'] <= 10)
 
         elements.append(Paragraph("Resumen:", styles['Heading2']))
         resumen_datos = [
@@ -1501,7 +1578,7 @@ class reporte:
             datos_inventario.append([
                 str(item['id']),
                 item['Nombre'],
-                str(item['Stock']),
+                str(item['stock_minimo']),
                 item['Unidad'],
                 item['Tipo']
             ])
@@ -1514,21 +1591,8 @@ class reporte:
             ('ALIGN', (0, 0), (4, 0), 'CENTER'),
             ('FONTNAME', (0, 0), (4, 0), 'Helvetica-Bold'),
             ('BACKGROUND', (0, 1), (4, -1), colors.beige),
-            ('GRID', (0, 0), (4, -1), 1, colors.black),
-            # Colores para stock bajo o agotado
-            ('TEXTCOLOR', (2, 1), (2, -1), colors.black)  # Por defecto negro
+            ('GRID', (0, 0), (4, -1), 1, colors.black)
         ]))
-
-        # Aplicar colores específicos a filas con stock bajo o agotado
-        for i, item in enumerate(self.inventario_datos):
-            if item['Stock'] == 0:
-                tabla_inventario.setStyle(TableStyle([
-                    ('TEXTCOLOR', (2, i+1), (2, i+1), colors.red)
-                ]))
-            elif item['Stock'] <= 10:
-                tabla_inventario.setStyle(TableStyle([
-                    ('TEXTCOLOR', (2, i+1), (2, i+1), colors.orange)
-                ]))
 
         elements.append(tabla_inventario)
 
@@ -1596,9 +1660,9 @@ class reporte:
             fecha_pedido = str(pedido['Fecha_pedido'])
             fecha_entrega = str(pedido['Fecha_entrega'])
             if len(fecha_pedido) > 10:
-                fecha_pedido = fecha_pedido[:10]  # Solo YYYY-MM-DD
+                fecha_pedido = fecha_pedido[:10]
             if len(fecha_entrega) > 10:
-                fecha_entrega = fecha_entrega[:10]  # Solo YYYY-MM-DD
+                fecha_entrega = fecha_entrega[:10]
 
             # Formatear total
             total = f"${float(pedido.get('Total', 0)):.2f}"
@@ -1622,28 +1686,8 @@ class reporte:
             ('FONTNAME', (0, 0), (6, 0), 'Helvetica-Bold'),
             ('BACKGROUND', (0, 1), (6, -1), colors.beige),
             ('GRID', (0, 0), (6, -1), 1, colors.black),
-            # Tamaño de fuente más pequeño para que quepan todos los datos
             ('FONTSIZE', (0, 0), (6, -1), 9)
         ]))
-
-        # Aplicar colores específicos a filas según estado
-        for i, pedido in enumerate(self.pedidos_datos):
-            if pedido['Estado'] == 'Pendiente':
-                tabla_pedidos.setStyle(TableStyle([
-                    ('TEXTCOLOR', (4, i+1), (4, i+1), colors.orange)
-                ]))
-            elif pedido['Estado'] == 'En proceso':
-                tabla_pedidos.setStyle(TableStyle([
-                    ('TEXTCOLOR', (4, i+1), (4, i+1), colors.blue)
-                ]))
-            elif pedido['Estado'] == 'Listo':
-                tabla_pedidos.setStyle(TableStyle([
-                    ('TEXTCOLOR', (4, i+1), (4, i+1), colors.green)
-                ]))
-            elif pedido['Estado'] == 'Entregado':
-                tabla_pedidos.setStyle(TableStyle([
-                    ('TEXTCOLOR', (4, i+1), (4, i+1), colors.grey)
-                ]))
 
         elements.append(tabla_pedidos)
 

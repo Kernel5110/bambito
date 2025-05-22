@@ -15,6 +15,7 @@ Autor: Sistema POS Bambi
 Versión: 1.0
 """
 
+from binascii import Error
 import pygame
 import os
 from ticket import Ticket
@@ -1021,7 +1022,10 @@ class PuntoVenta:
                     else:
                         exito = self.registrar_venta()
                         if exito:
+                            self.ticket.efectivo_recibido=efectivo
+                            self.ticket.cambio=efectivo-total_iva
                             self.ticket.guardar_pdf("ticket.pdf")
+                            self.ticket.limpiar
                             self.mostrar_alerta(f"Venta registrada. Cambio: ${efectivo - total_iva:.2f}")
                             self.productos = self.cargar_productos_desde_db()
                             self.mostrando_modal_pago = False
@@ -1344,56 +1348,85 @@ class PuntoVenta:
             print(f"Error en PuntoVenta.verificar_stock: {e}")
             return False
 
-    def registrar_venta(self):
-        """
-        Registra una venta completa en la base de datos
-        
-        Proceso:
-        1. Inserta la venta principal con fecha y total
-        2. Inserta el detalle de cada producto
-        3. Actualiza el stock de cada producto
-        
-        Returns:
-            bool: True si la venta se registró exitosamente
-        """
-        try:
-            conexion = Conexion()
-            total_venta = self.ticket.calcular_total()
-
-            fecha_venta = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-            # Insertar venta principal
-            insert_venta_query = """
-            INSERT INTO Venta (Fecha_venta, Total_venta)
-            VALUES (%s, %s)
+    def registrar_venta(self, tipo_pago="Efectivo"):
             """
-            conexion.update(insert_venta_query, (fecha_venta, total_venta))
+            Registra una venta completa en la base de datos
+            
+            Proceso:
+            1. Inserta la venta principal con fecha y total
+            2. Inserta el detalle de cada producto
+            3. Actualiza el stock de cada producto
+            
+            Args:
+                tipo_pago (str): Tipo de pago usado ("Efectivo" o "Tarjeta")
+            
+            Returns:
+                bool: True si la venta se registró exitosamente
+            """
+            try:
+                conexion = Conexion()
+                conexion.conectar()
+                
+                if not conexion.conn:
+                    print("Error: No se pudo conectar a la base de datos")
+                    return False
+                    
+                total_venta = self.calcular_total_con_iva()  # Total con IVA
+                fecha_venta = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-            # Obtener ID de la venta recién creada
-            id_venta_query = "SELECT LAST_INSERT_ID() AS ID_Venta"
-            id_venta = conexion.consultar(id_venta_query)[0]['ID_Venta']
-
-            # Insertar detalles de la venta
-            for producto in self.ticket.productos:
-                insert_detalle_venta_query = """
-                INSERT INTO Detalle_Venta (Cantidad, PrecioUnitario, Subtotal, FK_ID_Venta, FK_ID_CatProducto)
-                VALUES (%s, %s, %s, %s, %s)
+                # Insertar venta principal
+                insert_venta_query = """
+                INSERT INTO Venta (Fecha_venta, Total_venta)
+                VALUES (%s, %s)
                 """
-                subtotal = producto["unidades"] * producto["precio"]
-                conexion.update(insert_detalle_venta_query, (producto["unidades"], producto["precio"], subtotal, id_venta, producto["id"]))
-
-                # Actualizar stock del producto
-                update_catproducto_query = """
-                UPDATE CatProducto
-                SET Stock = Stock - %s
-                WHERE ID_CatProducto = %s
-                """
-                conexion.update(update_catproducto_query, (producto["unidades"], producto["id"]))
-
-            return True
-        except Exception as e:
-            print(f"Error durante la venta: {e}")
-            return False
+                
+                try:
+                    conexion.cursor.execute(insert_venta_query, (fecha_venta, total_venta))
+                    conexion.conn.commit()
+                    
+                    # Obtener ID de la venta recién creada
+                    id_venta = conexion.cursor.lastrowid
+                    print(f"Venta registrada con ID: {id_venta}")
+                    
+                    # Insertar detalles de la venta
+                    for producto in self.ticket.productos:
+                        insert_detalle_venta_query = """
+                        INSERT INTO Detalle_Venta (Cantidad, PrecioUnitario, Subtotal, FK_ID_Venta, FK_ID_CatProducto)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """
+                        subtotal = float(producto["unidades"]) * float(producto["precio"])
+                        
+                        conexion.cursor.execute(insert_detalle_venta_query, 
+                            (producto["unidades"], producto["precio"], subtotal, id_venta, producto["id"]))
+                        
+                        # Actualizar stock del producto
+                        update_catproducto_query = """
+                        UPDATE CatProducto
+                        SET Stock = Stock - %s
+                        WHERE ID_CatProducto = %s
+                        """
+                        conexion.cursor.execute(update_catproducto_query, 
+                            (producto["unidades"], producto["id"]))
+                    
+                    # Confirmar todos los cambios
+                    conexion.conn.commit()
+                    
+                    # Actualizar el ticket con el tipo de pago antes de guardar el PDF
+                    self.ticket.tipo_pago = tipo_pago
+                    
+                    print(f"Venta completada exitosamente. Tipo de pago: {tipo_pago}")
+                    return True
+                    
+                except Error as e:
+                    print(f"Error al insertar en la base de datos: {e}")
+                    conexion.conn.rollback()
+                    return False
+                    
+            except Exception as e:
+                print(f"Error durante la venta: {e}")
+                return False
+            finally:
+                conexion.cerrar()
 
     def validar_correo(self, correo):
         """

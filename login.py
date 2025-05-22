@@ -31,8 +31,6 @@ from conexion import resource_path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'db')))
 from receta import Conexion  # Importa la clase Conexion desde el módulo conexion.
 
-# Importa el menú principal desde el archivo 'menu.py'
-import menu 
 con_intentos = 0
 # Inicializar pygame
 pygame.init()  # Inicializa todos los módulos de pygame. 
@@ -302,7 +300,12 @@ def main():
                 elif entry_x <= mouse_x <= entry_x + entry_w and boton_y <= mouse_y <= boton_y + entry_h:
                     nombre_usuario, puesto = verificar_login()
                     if nombre_usuario:
-                        return (nombre_usuario, puesto)  # <--- SOLO return, NO pygame.display.quit()
+                        # Importa el menú principal desde el archivo 'menu.py'
+                        import menu 
+                        menu.main(nombre_usuario, puesto)
+                        usuario_texto==""
+                        contraseña_texto==""
+                    
                 # Botón salir
                 elif salir_x <= mouse_x <= salir_x + salir_w and salir_y <= mouse_y <= salir_y + salir_h:
                     pygame.quit()
@@ -315,6 +318,11 @@ def main():
                 if usuario_activo: 
                     if event.key == pygame.K_BACKSPACE:
                         usuario_texto = usuario_texto[:-1]  # Elimina el último carácter del campo de usuario.
+                    elif event.key == pygame.K_TAB:
+                        usuario_activo = False
+                        contraseña_activa = True
+                        if contraseña_texto == "CONTRASEÑA":
+                            contraseña_texto = ""
                     else:
                         usuario_texto += event.unicode  # Añade el carácter al campo de usuario.
                 elif contraseña_activa:
@@ -336,5 +344,4 @@ def main():
         pygame.display.flip()  # Actualiza la pantalla.
 
 if __name__ == "__main__":
-    nombre_usuario, puesto = ic(main())  # Ejecuta la función principal.
-    menu.main(nombre_usuario, puesto) # Ejecuta el menú principal.
+    main()  # Ejecuta la función principal.
