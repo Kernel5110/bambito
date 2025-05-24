@@ -379,6 +379,7 @@ class Receta:
             fila_y += row_height
 
     def mostrar_formulario(self, receta=None):
+    
         """
         Configura y muestra el formulario de receta
 
@@ -391,8 +392,10 @@ class Receta:
         font = pygame.font.SysFont("Open Sans", int(self.alto * 0.035))
 
         # Centrar el formulario
-        x = self.x + int(self.ancho * 0.25)
-        y = self.y + int(self.alto * 0.18)
+        form_w = int(self.ancho * 0.6)
+        form_h = int(self.alto * 0.8)
+        form_x = self.x + (self.ancho - form_w) // 2
+        form_y = self.y + (self.alto - form_h) // 2
 
         # Campos del formulario
         labels = [
@@ -403,63 +406,59 @@ class Receta:
         self.formulario_labels = []
         self.formulario_boxes = []
 
+        # Espaciado vertical basado en la altura total y número de campos
+        field_spacing = form_h * 0.15  # 15% de la altura por campo
+        start_y = form_y + int(form_h * 0.1)  # 10% de margen superior
+
         for i, label in enumerate(labels):
             lbl = font.render(label, True, (0, 0, 0))
-            self.formulario_labels.append((lbl, (x, y + i * int(self.alto * 0.07))))
+            y_pos = start_y + i * field_spacing
+            self.formulario_labels.append((lbl, (form_x + 20, y_pos)))
 
             # Dimensiones del campo
-            input_width = int(self.ancho * 0.28)
-            input_height = int(self.alto * 0.05)
+            input_width = int(form_w * 0.4)  # 40% del ancho del formulario
+            input_height = int(form_h * 0.08)  # 8% de la altura del formulario
 
             # Configuración específica por campo
             if label == "Tiempo de Preparación (min):":
-                # Campos numéricos
                 valor_default = ""
                 if receta:
-                    if label == "Tiempo de Preparación (min):":
-                        valor_default = str(receta.get('tiempo', ''))
-
+                    valor_default = str(receta.get('tiempo', ''))
                 box = InputBox(
-                    x + int(self.ancho * 0.15),
-                    y + i * int(self.alto * 0.07),
+                    form_x + int(form_w * 0.45),
+                    y_pos,
                     input_width,
                     input_height,
                     text=valor_default,
                     font=font,
                     numeric=True
                 )
-            elif label == "Descripción:" or label == "Instrucciones:":
-                # Campos expandidos para texto largo
+            elif label in ["Descripción:", "Instrucciones:"]:
                 valor_default = ""
                 if receta:
                     if label == "Descripción:":
                         valor_default = receta.get('descripcion', '')
-                    elif label == "Instrucciones:":
-                        # Buscar instrucciones en la base de datos
-                        if receta.get('id'):
-                            conexion = Conexion()
-                            query = "SELECT Instrucciones FROM receta WHERE ID_Receta = %s"
-                            resultado = conexion.consultar(query, (receta.get('id'),))
-                            if resultado and 'Instrucciones' in resultado[0]:
-                                valor_default = resultado[0]['Instrucciones']
-
+                    elif label == "Instrucciones:" and receta.get('id'):
+                        conexion = Conexion()
+                        query = "SELECT Instrucciones FROM receta WHERE ID_Receta = %s"
+                        resultado = conexion.consultar(query, (receta.get('id'),))
+                        valor_default = resultado[0].get('Instrucciones', '') if resultado else ''
+                # Aumentar ancho y altura para estos campos
                 box = InputBox(
-                    x + int(self.ancho * 0.15),
-                    y + i * int(self.alto * 0.07),
-                    input_width + int(self.ancho * 0.1),  # Más ancho
-                    input_height + int(self.alto * 0.05),  # Más alto
+                    form_x + int(form_w * 0.45),
+                    y_pos,
+                    int(form_w * 0.5),  # 50% del ancho del formulario
+                    int(form_h * 0.12),  # 12% de la altura del formulario
                     text=valor_default,
                     font=font
                 )
             else:
-                # Campo estándar
                 valor_default = ""
                 if receta and label == "Nombre:":
                     valor_default = receta.get('nombre', '')
-
                 box = InputBox(
-                    x + int(self.ancho * 0.15),
-                    y + i * int(self.alto * 0.07),
+                    form_x + int(form_w * 0.45),
+                    y_pos,
                     input_width,
                     input_height,
                     text=valor_default,
@@ -468,19 +467,19 @@ class Receta:
             self.formulario_boxes.append(box)
 
         # Botones de acción
-        button_y = y + (len(labels) + 0.5) * int(self.alto * 0.07)
-        button_width = int(self.ancho * 0.12)
-        button_height = int(self.alto * 0.06)
+        button_width = int(form_w * 0.15)
+        button_height = int(form_h * 0.08)
+        button_y = start_y + len(labels) * field_spacing + int(form_h * 0.05)  # Margen inferior
 
         self.formulario_btn_guardar = pygame.Rect(
-            x + int(self.ancho * 0.05),
+            form_x + int(form_w * 0.3),
             button_y,
             button_width,
             button_height
         )
 
         self.formulario_btn_cancelar = pygame.Rect(
-            x + int(self.ancho * 0.22),
+            form_x + int(form_w * 0.55),
             button_y,
             button_width,
             button_height
@@ -524,6 +523,8 @@ class Receta:
         surface.blit(text_title, (title_x, form_y + 20))
 
         # Labels y cajas de texto
+        field_spacing = form_h * 0.15
+        start_y = form_y + int(form_h * 0.1)
         for i, (lbl, pos) in enumerate(self.formulario_labels):
             surface.blit(lbl, pos)
             self.formulario_boxes[i].draw(surface)
@@ -548,7 +549,7 @@ class Receta:
             color = (200, 0, 0) if "Error" in self.formulario_mensaje else (0, 150, 0)
             msg = font_msg.render(self.formulario_mensaje, True, color)
             msg_x = form_x + (form_w - msg.get_width()) // 2
-            surface.blit(msg, (msg_x, form_y + form_h - 40))
+            surface.blit(msg, (msg_x, form_y + form_h - 50))  # Ajustar posición para que no se superponga
 
     def guardar_receta(self):
         """

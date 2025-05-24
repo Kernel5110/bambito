@@ -18,13 +18,15 @@ Versión: 1.0
 from binascii import Error
 import pygame
 import os
+import requests
 from ticket import Ticket
-from conexion import resource_path
 from receta import Conexion
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
 import re
+from io import BytesIO
+import pyperclip
 
 # Constantes para colores y fuentes
 COLOR_FONDO = (241, 236, 227)  # Color de fondo principal
@@ -80,9 +82,7 @@ class InputBox:
     def handle_event(self, event):
         """
         Maneja eventos de mouse y teclado para el campo
-        
-        Args:
-            event (pygame.event.Event): Evento de Pygame
+        ACTUALIZADO: Ahora incluye soporte para Ctrl+V
         """
         if event.type == pygame.MOUSEBUTTONDOWN:
             # Activar/desactivar campo según clic
@@ -93,7 +93,33 @@ class InputBox:
             self.color = self.color_active if self.active else self.color_inactive
             
         if event.type == pygame.KEYDOWN and self.active:
-            # Manejar teclas cuando está activo
+            # Detectar Ctrl+V para pegar
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]:
+                if event.key == pygame.K_v:
+                    try:
+                        clipboard_text = pyperclip.paste()
+                        if clipboard_text:
+                            # Validar contenido según tipo de campo
+                            if self.numeric:
+                                # Solo permitir números y un punto decimal
+                                valid_chars = '0123456789.'
+                                filtered_text = ''.join(c for c in clipboard_text if c in valid_chars)
+                                # Asegurar solo un punto decimal
+                                if filtered_text.count('.') > 1:
+                                    parts = filtered_text.split('.')
+                                    filtered_text = parts[0] + '.' + ''.join(parts[1:])
+                                if filtered_text and (not self.text or '.' not in self.text):
+                                    self.text += filtered_text
+                            else:
+                                # Campo de texto normal - limitar longitud
+                                if len(self.text + clipboard_text) <= 50:
+                                    self.text += clipboard_text
+                    except Exception as e:
+                        print(f"Error al pegar texto: {e}")
+                return
+            
+            # Manejar otras teclas normalmente
             if event.key == pygame.K_RETURN:
                 self.active = False
             elif event.key == pygame.K_BACKSPACE:
@@ -131,7 +157,7 @@ class InputBox:
             str: Texto actual del campo
         """
         return self.text
-
+  
 class PuntoVenta:
     """
     Clase principal del sistema de punto de venta
@@ -191,13 +217,20 @@ class PuntoVenta:
         self.productos = self.cargar_productos_desde_db()
         self.imagenes_productos = []
         for prod in self.productos:
-            ruta = resource_path(prod["imagen"])
-            print(ruta)
-            if ruta and os.path.exists(ruta):
-                imagen = pygame.image.load(ruta).convert_alpha()
-                imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-            else:
-                # Imagen por defecto si no existe
+            imagen_url = prod["imagen"]
+            try:
+                response = requests.get(imagen_url)
+                if response.status_code == 200:
+                    imagen_data = BytesIO(response.content)
+                    imagen = pygame.image.load(imagen_data).convert_alpha()
+                    imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                else:
+                    # Imagen por defecto si no se puede descargar
+                    imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                    imagen.fill((200, 200, 200))
+            except Exception as e:
+                print(f"Error al descargar la imagen: {e}")
+                # Imagen por defecto en caso de error
                 imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
                 imagen.fill((200, 200, 200))
             self.imagenes_productos.append(imagen)
@@ -237,7 +270,6 @@ class PuntoVenta:
     def cargar_productos_desde_db(self):
         """
         Carga todos los productos disponibles desde la base de datos
-        
         Returns:
             list: Lista de diccionarios con información de productos
         """
@@ -252,7 +284,7 @@ class PuntoVenta:
             # Asignar imagen por defecto si no existe
             for prod in productos:
                 if not prod["imagen"]:
-                    prod["imagen"] = "imagenes/log.png"
+                    prod["imagen"] = "https://github.com/Kernel5110/bambito/blob/main/imagenes/log.png"  # URL de imagen por defecto
             return productos
         except Exception as e:
             print(f"Error en PuntoVenta.cargar_productos_desde_db: {e}")
@@ -523,7 +555,7 @@ class PuntoVenta:
 
         # Total sin IVA
         total_text = self.fuente_ticket.render(f"Total: ${self.ticket.calcular_total():.2f}", True, COLOR_TEXTO)
-        surface.blit(total_text, (x + int(0.05 * w), total_y + 5))
+        surface.blit(total_text, (x + int(0.05 * w), total_y + 20))
 
         # Total con IVA
         total_iva = self.calcular_total_con_iva()
@@ -966,7 +998,7 @@ class PuntoVenta:
                         # Pago exitoso, registrar venta
                         exito = self.registrar_venta()
                         if exito:
-                            self.ticket.guardar_pdf("ticket.pdf")
+                            self.ticket.guardar_pdf()
                             self.mostrar_alerta("Pago aprobado. Venta registrada.")
                             self.productos = self.cargar_productos_desde_db()
                             self.mostrando_modal_pago = False
@@ -981,6 +1013,85 @@ class PuntoVenta:
         """
         Maneja todos los eventos del sistema
         """
+        # IMPORTANTE: Manejar eventos de teclado para modales ANTES de cualquier return
+        
+        # Eventos del formulario de productos - MOVER AL PRINCIPIO
+        if self.mostrando_formulario:
+            # Manejar eventos de teclado para todos los campos
+            for box in self.formulario_boxes:
+                box.handle_event(event)
+            
+            # Manejar clics en botones
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.formulario_btn_guardar and self.formulario_btn_guardar.collidepoint(event.pos):
+                    self.guardar_formulario_agregar_producto()
+                elif self.formulario_btn_cancelar and self.formulario_btn_cancelar.collidepoint(event.pos):
+                    self.mostrando_formulario = False
+            return  # Solo retornar después de manejar TODOS los eventos
+
+        # Eventos del modal de correo - MOVER AL PRINCIPIO
+        if getattr(self, "mostrando_modal_correo", False):
+            # Manejar eventos de teclado para el campo de correo
+            if self.correo_box:
+                self.correo_box.handle_event(event)
+            
+            # Manejar clics en botones
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.boton_modal_enviar.collidepoint(event.pos):
+                    correo = self.correo_box.get_value().strip()
+                    if self.validar_correo(correo):
+                        enviado = self.enviar_ticket_por_correo(correo)
+                        if enviado:
+                            self.correo_mensaje = "¡Ticket enviado!"
+                            self.mostrando_modal_correo = False
+                            self.mostrar_alerta("Ticket enviado correctamente.")
+                        else:
+                            self.correo_mensaje = "Error al enviar el correo."
+                    else:
+                        self.correo_mensaje = "Correo inválido."
+                elif self.boton_modal_cancelar.collidepoint(event.pos):
+                    self.mostrando_modal_correo = False
+                    self.correo_mensaje = ""
+            return  # Solo retornar después de manejar TODOS los eventos
+
+        # Eventos del modal de pago
+        if self.mostrando_modal_pago:
+            self.efectivo_box.handle_event(event)
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.boton_modal_confirmar.collidepoint(event.pos):
+                    total_iva = self.ticket.calcular_total()
+                    total_iva *= 1.16  # Aplicar IVA
+                    efectivo_str = self.efectivo_box.get_value()
+                    try:
+                        efectivo = float(efectivo_str)
+                    except Exception:
+                        efectivo = 0.0
+                    if efectivo < total_iva:
+                        self.efectivo_mensaje = "Efectivo insuficiente."
+                    else:
+                        exito = self.registrar_venta()
+                        if exito:
+                            self.ticket.efectivo_recibido=efectivo
+                            self.ticket.cambio=efectivo-total_iva
+                            self.ticket.guardar_pdf()
+                            self.ticket.limpiar
+                            self.mostrar_alerta(f"Venta registrada. Cambio: ${efectivo - total_iva:.2f}")
+                            self.productos = self.cargar_productos_desde_db()
+                            self.mostrando_modal_pago = False
+                            self.efectivo_box = None
+                            self.efectivo_mensaje = ""
+                        else:
+                            self.efectivo_mensaje = "Error al registrar la venta."
+                elif self.boton_modal_cancelar_pago.collidepoint(event.pos):
+                    self.mostrando_modal_pago = False
+                    self.efectivo_box = None
+                    self.efectivo_mensaje = ""
+                elif self.boton_pago_tarjeta.collidepoint(event.pos):  # NUEVO
+                    # Pagar con tarjeta
+                    total_iva = self.calcular_total_con_iva()
+                    self.procesar_pago_tarjeta(total_iva)
+            return
+
         # Manejo de scroll con rueda del mouse
         if event.type == pygame.MOUSEWHEEL:
             mouse_pos = pygame.mouse.get_pos()
@@ -1005,44 +1116,6 @@ class PuntoVenta:
                     max_scroll = max(0, len(self.ticket.productos) - self.productos_ticket_visibles)
                     self.scroll_ticket = min(max_scroll, self.scroll_ticket + 1)
 
-        # Eventos del modal de pago
-        if self.mostrando_modal_pago:
-            self.efectivo_box.handle_event(event)
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if self.boton_modal_confirmar.collidepoint(event.pos):
-                    total_iva = self.ticket.calcular_total()
-                    total_iva *= 1.16  # Aplicar IVA
-                    efectivo_str = self.efectivo_box.get_value()
-                    try:
-                        efectivo = float(efectivo_str)
-                    except Exception:
-                        efectivo = 0.0
-                    if efectivo < total_iva:
-                        self.efectivo_mensaje = "Efectivo insuficiente."
-                    else:
-                        exito = self.registrar_venta()
-                        if exito:
-                            self.ticket.efectivo_recibido=efectivo
-                            self.ticket.cambio=efectivo-total_iva
-                            self.ticket.guardar_pdf("ticket.pdf")
-                            self.ticket.limpiar
-                            self.mostrar_alerta(f"Venta registrada. Cambio: ${efectivo - total_iva:.2f}")
-                            self.productos = self.cargar_productos_desde_db()
-                            self.mostrando_modal_pago = False
-                            self.efectivo_box = None
-                            self.efectivo_mensaje = ""
-                        else:
-                            self.efectivo_mensaje = "Error al registrar la venta."
-                elif self.boton_modal_cancelar_pago.collidepoint(event.pos):
-                    self.mostrando_modal_pago = False
-                    self.efectivo_box = None
-                    self.efectivo_mensaje = ""
-                elif self.boton_pago_tarjeta.collidepoint(event.pos):  # NUEVO
-                    # Pagar con tarjeta
-                    total_iva = self.calcular_total_con_iva()
-                    self.procesar_pago_tarjeta(total_iva)
-            return
-
         if event.type == pygame.MOUSEBUTTONDOWN:
             # Clic derecho para eliminar productos del ticket
             if event.button == 3:  # Botón derecho
@@ -1059,38 +1132,6 @@ class PuntoVenta:
                                 self.scroll_ticket = min(self.scroll_ticket, max_scroll)
                             break
 
-            # Eventos del modal de correo
-            if getattr(self, "mostrando_modal_correo", False):
-                self.correo_box.handle_event(event)
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    if self.boton_modal_enviar.collidepoint(event.pos):
-                        correo = self.correo_box.get_value().strip()
-                        if self.validar_correo(correo):
-                            enviado = self.enviar_ticket_por_correo(correo)
-                            if enviado:
-                                self.correo_mensaje = "¡Ticket enviado!"
-                                self.mostrando_modal_correo = False
-                                self.mostrar_alerta("Ticket enviado correctamente.")
-                            else:
-                                self.correo_mensaje = "Error al enviar el correo."
-                        else:
-                            self.correo_mensaje = "Correo inválido."
-                    elif self.boton_modal_cancelar.collidepoint(event.pos):
-                        self.mostrando_modal_correo = False
-                        self.correo_mensaje = ""
-                return
-
-            # Eventos del formulario de productos
-            if self.mostrando_formulario:
-                for box in self.formulario_boxes:
-                    box.handle_event(event)
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    if self.formulario_btn_guardar and self.formulario_btn_guardar.collidepoint(event.pos):
-                        self.guardar_formulario_agregar_producto()
-                    elif self.formulario_btn_cancelar and self.formulario_btn_cancelar.collidepoint(event.pos):
-                        self.mostrando_formulario = False
-                    return
-
             # Eventos principales del POS
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_x, mouse_y = event.pos
@@ -1106,7 +1147,6 @@ class PuntoVenta:
                     self.mostrando_modal_correo = True
                     self.correo_box = None
                     self.correo_mensaje = ""
-                    return
                 # Botón generar factura
                 elif hasattr(self, "boton_factura_rect") and self.boton_factura_rect and self.boton_factura_rect.collidepoint(mouse_x, mouse_y):
                     try:
@@ -1118,7 +1158,6 @@ class PuntoVenta:
                         asyncio.run(factura.main())
                     except Exception as e:
                         self.mostrar_alerta(f"Error al generar factura: {e}")
-                    return
                 else:
                     self.busqueda_activa = False
 
@@ -1126,12 +1165,28 @@ class PuntoVenta:
                     for rect, idx in self.product_rects:
                         if rect and rect.collidepoint(mouse_x, mouse_y):
                             prod = self.productos[idx]
-                            if self.verificar_stock(prod["ID_CatProducto"], 1):
-                                self.ticket.agregar_producto(prod["nombre"], 1, prod["precio"], prod["ID_CatProducto"])
-                                self.mostrar_alerta("")
-                                print(f"Producto agregado al ticket: {prod['nombre']}")
+                            # Verificar si el producto ya está en el ticket
+                            if self.ticket.buscar_producto_por_nombre(prod["nombre"]):
+                                # Si ya está, obtener la cantidad actual en el ticket
+                                cantidad_actual = self.ticket.obtener_cantidad_producto(prod["nombre"])
+                                cantidad_nueva = cantidad_actual + 1
+                                print(cantidad_nueva)
+                                # Verificar si hay suficiente stock para la nueva cantidad
+                                if self.verificar_stock(prod["ID_CatProducto"], cantidad_nueva):
+                                    self.ticket.agregar_producto(prod["nombre"], 1, prod["precio"], prod["ID_CatProducto"])
+                                    self.mostrar_alerta(f"Incrementada cantidad de {prod['nombre']} en el ticket")
+                                    print(f"Incrementada cantidad de {prod['nombre']} en el ticket")
+                                else:
+                                    self.mostrar_alerta(f"No hay suficiente stock para agregar más '{prod['nombre']}'")
                             else:
-                                self.mostrar_alerta(f"No hay suficiente stock de '{prod['nombre']}'")
+                                # Si no está, verificar stock para 1 unidad
+                                if self.verificar_stock(prod["ID_CatProducto"], 1):
+                                    self.ticket.agregar_producto(prod["nombre"], 1, prod["precio"], prod["ID_CatProducto"])
+                                    self.mostrar_alerta(f"Producto agregado al ticket: {prod['nombre']}")
+                                    print(f"Producto agregado al ticket: {prod['nombre']}")
+                                else:
+                                    self.mostrar_alerta(f"No hay suficiente stock de '{prod['nombre']}'")
+                            break  # Salir del bucle una vez que se encuentra el producto seleccionado
 
                     # Botón pagar
                     if self.boton_pagar_rect and self.boton_pagar_rect.collidepoint(mouse_x, mouse_y):
@@ -1139,6 +1194,7 @@ class PuntoVenta:
                             self.mostrando_modal_pago = True
                             self.efectivo_box = None
                             self.efectivo_mensaje = ""
+                            
                         else:
                             self.mostrar_alerta("El ticket está vacío.")
 
@@ -1176,7 +1232,7 @@ class PuntoVenta:
             else:
                 if len(self.busqueda_texto) < 30 and event.unicode.isprintable():
                     self.busqueda_texto += event.unicode
-
+                    
     def mostrar_formulario_agregar_producto(self):
         """
         Configura y muestra el formulario para agregar/actualizar productos
@@ -1413,6 +1469,7 @@ class PuntoVenta:
                     
                     # Actualizar el ticket con el tipo de pago antes de guardar el PDF
                     self.ticket.tipo_pago = tipo_pago
+                    
                     
                     print(f"Venta completada exitosamente. Tipo de pago: {tipo_pago}")
                     return True
