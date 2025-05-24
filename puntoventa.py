@@ -15,15 +15,18 @@ Autor: Sistema POS Bambi
 Versión: 1.0
 """
 
+from binascii import Error
 import pygame
 import os
+import requests
 from ticket import Ticket
-from conexion import resource_path
 from receta import Conexion
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime
 import re
+from io import BytesIO
+import pyperclip
 
 # Constantes para colores y fuentes
 COLOR_FONDO = (241, 236, 227)  # Color de fondo principal
@@ -79,9 +82,7 @@ class InputBox:
     def handle_event(self, event):
         """
         Maneja eventos de mouse y teclado para el campo
-        
-        Args:
-            event (pygame.event.Event): Evento de Pygame
+        ACTUALIZADO: Ahora incluye soporte para Ctrl+V
         """
         if event.type == pygame.MOUSEBUTTONDOWN:
             # Activar/desactivar campo según clic
@@ -92,7 +93,33 @@ class InputBox:
             self.color = self.color_active if self.active else self.color_inactive
             
         if event.type == pygame.KEYDOWN and self.active:
-            # Manejar teclas cuando está activo
+            # Detectar Ctrl+V para pegar
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]:
+                if event.key == pygame.K_v:
+                    try:
+                        clipboard_text = pyperclip.paste()
+                        if clipboard_text:
+                            # Validar contenido según tipo de campo
+                            if self.numeric:
+                                # Solo permitir números y un punto decimal
+                                valid_chars = '0123456789.'
+                                filtered_text = ''.join(c for c in clipboard_text if c in valid_chars)
+                                # Asegurar solo un punto decimal
+                                if filtered_text.count('.') > 1:
+                                    parts = filtered_text.split('.')
+                                    filtered_text = parts[0] + '.' + ''.join(parts[1:])
+                                if filtered_text and (not self.text or '.' not in self.text):
+                                    self.text += filtered_text
+                            else:
+                                # Campo de texto normal - limitar longitud
+                                if len(self.text + clipboard_text) <= 50:
+                                    self.text += clipboard_text
+                    except Exception as e:
+                        print(f"Error al pegar texto: {e}")
+                return
+            
+            # Manejar otras teclas normalmente
             if event.key == pygame.K_RETURN:
                 self.active = False
             elif event.key == pygame.K_BACKSPACE:
@@ -130,7 +157,7 @@ class InputBox:
             str: Texto actual del campo
         """
         return self.text
-
+  
 class PuntoVenta:
     """
     Clase principal del sistema de punto de venta
@@ -190,13 +217,20 @@ class PuntoVenta:
         self.productos = self.cargar_productos_desde_db()
         self.imagenes_productos = []
         for prod in self.productos:
-            ruta = resource_path(prod["imagen"])
-            print(ruta)
-            if ruta and os.path.exists(ruta):
-                imagen = pygame.image.load(ruta).convert_alpha()
-                imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-            else:
-                # Imagen por defecto si no existe
+            imagen_url = prod["imagen"]
+            try:
+                response = requests.get(imagen_url)
+                if response.status_code == 200:
+                    imagen_data = BytesIO(response.content)
+                    imagen = pygame.image.load(imagen_data).convert_alpha()
+                    imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                else:
+                    # Imagen por defecto si no se puede descargar
+                    imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                    imagen.fill((200, 200, 200))
+            except Exception as e:
+                print(f"Error al descargar la imagen: {e}")
+                # Imagen por defecto en caso de error
                 imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
                 imagen.fill((200, 200, 200))
             self.imagenes_productos.append(imagen)
@@ -228,10 +262,14 @@ class PuntoVenta:
         self.scroll_ticket = 0
         self.productos_ticket_visibles = 6  # Número de productos visibles en el ticket
 
+        #Tiempos de aletra visible
+        self.alerta = ""
+        self.tiempo_alerta = 0  # Para rastrear cuando se mostró la alerta
+        self.duracion_alerta = 5000  # 5000 milisegundos = 5 segundos
+
     def cargar_productos_desde_db(self):
         """
         Carga todos los productos disponibles desde la base de datos
-        
         Returns:
             list: Lista de diccionarios con información de productos
         """
@@ -246,7 +284,7 @@ class PuntoVenta:
             # Asignar imagen por defecto si no existe
             for prod in productos:
                 if not prod["imagen"]:
-                    prod["imagen"] = "imagenes/log.png"
+                    prod["imagen"] = "https://github.com/Kernel5110/bambito/blob/main/imagenes/log.png"  # URL de imagen por defecto
             return productos
         except Exception as e:
             print(f"Error en PuntoVenta.cargar_productos_desde_db: {e}")
@@ -260,6 +298,8 @@ class PuntoVenta:
             mensaje (str): Mensaje a mostrar
         """
         self.alerta = mensaje
+        # Registrar el tiempo en que se mostró la alerta
+        self.tiempo_alerta = pygame.time.get_ticks()
         print("ALERTA:", mensaje)
 
     def filtrar_productos(self):
@@ -276,18 +316,37 @@ class PuntoVenta:
 
     def dibujar_alerta(self, surface):
         """
-        Dibuja la alerta actual en la pantalla
+        Dibuja la alerta actual en la pantalla si no han pasado 5 segundos
         
         Args:
             surface (pygame.Surface): Superficie donde dibujar
         """
+        # Verificar si hay una alerta para mostrar
         if self.alerta:
-            rect = pygame.Rect(self.x + int(0.05 * self.ancho), self.y + int(0.03 * self.alto), int(0.5 * self.ancho), int(0.06 * self.alto))
-            pygame.draw.rect(surface, COLOR_ALERTA, rect, border_radius=10)
-            pygame.draw.rect(surface, COLOR_ALERTA_BORDE, rect, 2, border_radius=10)
-            fuente_alerta = pygame.font.SysFont("Open Sans", int(0.032 * self.alto), bold=True)
-            texto = fuente_alerta.render(self.alerta, True, COLOR_ALERTA_BORDE)
-            surface.blit(texto, (rect.x + 20, rect.y + 10))
+            # Verificar si han pasado 5 segundos desde que se mostró la alerta
+            tiempo_actual = pygame.time.get_ticks()
+            if tiempo_actual - self.tiempo_alerta >= self.duracion_alerta:
+                # Han pasado 5 segundos, eliminar la alerta
+                self.alerta = ""
+            else:
+                # Dibujar la alerta en la pantalla
+                rect = pygame.Rect(self.x + int(0.05 * self.ancho), self.y + int(0.03 * self.alto), 
+                                int(0.5 * self.ancho), int(0.06 * self.alto))
+                pygame.draw.rect(surface, COLOR_ALERTA, rect, border_radius=10)
+                pygame.draw.rect(surface, COLOR_ALERTA_BORDE, rect, 2, border_radius=10)
+                fuente_alerta = pygame.font.SysFont("Open Sans", int(0.032 * self.alto), bold=True)
+                texto = fuente_alerta.render(self.alerta, True, COLOR_ALERTA_BORDE)
+                surface.blit(texto, (rect.x + 20, rect.y + 10))
+                
+                # Opcional: Efecto de desvanecimiento
+                # Calcular transparencia basada en el tiempo restante
+                tiempo_restante = self.duracion_alerta - (tiempo_actual - self.tiempo_alerta)
+                if tiempo_restante < 1000:  # Último segundo
+                    # Dibujar un rectángulo semitransparente encima para crear efecto de desvanecimiento
+                    transparencia = int(255 * (tiempo_restante / 1000))
+                    s = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+                    s.fill((241, 236, 227, 255 - transparencia))  # COLOR_FONDO con alpha
+                    surface.blit(s, (rect.x, rect.y))
 
     def dibujar_campo_busqueda(self, surface, x, y, w, h):
         """
@@ -374,9 +433,6 @@ class PuntoVenta:
     def dibujar_ticket(self, surface):
         """
         Dibuja el ticket de venta con todos los productos y botones
-        
-        Args:
-            surface (pygame.Surface): Superficie donde dibujar
         """
         # Definir dimensiones del ticket
         x = self.x + int(0.65 * self.ancho)
@@ -396,15 +452,14 @@ class PuntoVenta:
         pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), y + int(0.1 * h)), (x + w - int(0.03 * w), y + int(0.1 * h)), 2)
 
         # Encabezados de la tabla
-        headers = ["Nombre", "Unidades", "Precio", ""]  # Añadir columna vacía para indicador visual
+        headers = ["Nombre", "Unidades", "Precio", "Acción"]
         header_y = y + int(0.12 * h)
-        col_widths = [int(w*0.4), int(w*0.2), int(w*0.3), int(w*0.1)]  # Ajustar anchos
+        col_widths = [int(w*0.4), int(w*0.2), int(w*0.2), int(w*0.2)]
         col_x = x + int(0.03 * w)
-        
+
         for i, header in enumerate(headers):
-            if header:  # Solo dibujar encabezados no vacíos
-                header_render = self.fuente_ticket.render(header, True, COLOR_TEXTO)
-                surface.blit(header_render, (col_x, header_y))
+            header_render = self.fuente_ticket.render(header, True, COLOR_TEXTO)
+            surface.blit(header_render, (col_x, header_y))
             col_x += col_widths[i]
 
         # Línea divisora después de encabezados
@@ -413,70 +468,249 @@ class PuntoVenta:
         # Área de productos con scroll
         productos_area_y = header_y + int(0.06 * h)
         productos_area_h = h - int(0.3 * h)  # Espacio para productos
-        
+
         # Calcular límites para el scroll del ticket
         total_productos = len(self.ticket.productos)
         max_scroll_ticket = max(0, total_productos - self.productos_ticket_visibles)
         self.scroll_ticket = max(0, min(self.scroll_ticket, max_scroll_ticket))
-        
+
         # Guardar referencia para detección de clics
         self.ticket_productos_rects = []
-        
+
         # Dibujar productos visibles
         y_offset = productos_area_y
         start_idx = self.scroll_ticket
         end_idx = min(start_idx + self.productos_ticket_visibles, total_productos)
-        
+
         for i in range(start_idx, end_idx):
             if i < len(self.ticket.productos):
                 producto = self.ticket.productos[i]
-                
+
                 # Crear rect para cada producto
                 producto_rect = pygame.Rect(x, y_offset, w, int(0.05 * h))
                 self.ticket_productos_rects.append((producto_rect, i))
-                
+
                 # Fondo alternado
                 if (i - start_idx) % 2 == 0:
                     pygame.draw.rect(surface, (250, 250, 250), producto_rect)
-                
+
                 # Dibujar datos del producto
                 col_x = x + int(0.03 * w)
-                
+
                 # Nombre
                 nombre_render = self.fuente_ticket.render(producto['nombre'], True, COLOR_TEXTO)
                 surface.blit(nombre_render, (col_x, y_offset))
                 col_x += col_widths[0]
-                
+
                 # Unidades
                 unidades_render = self.fuente_ticket.render(str(producto['unidades']), True, COLOR_TEXTO)
                 surface.blit(unidades_render, (col_x, y_offset))
                 col_x += col_widths[1]
-                
+
                 # Precio
                 precio_render = self.fuente_ticket.render(f"${producto['precio'] * producto['unidades']:.2f}", True, COLOR_TEXTO)
                 surface.blit(precio_render, (col_x, y_offset))
                 col_x += col_widths[2]
-                
-                # Indicador de clic derecho
-                hint_text = self.fuente_producto.render("❌", True, (200, 0, 0))
-                surface.blit(hint_text, (col_x, y_offset + 5))
-                
+
+                # Botones de incrementar y decrementar
+                btn_w, btn_h = int(0.08 * w), int(0.04 * h)
+                btn_y = y_offset + (int(0.05 * h) - btn_h) // 2
+
+                # Botón de decrementar
+                btn_decrementar = pygame.Rect(col_x, btn_y, btn_w, btn_h)
+                pygame.draw.rect(surface, (220, 0, 0), btn_decrementar, border_radius=5)
+                pygame.draw.rect(surface, (180, 0, 0), btn_decrementar, 2, border_radius=5)
+                btn_text = self.fuente_producto.render("-", True, self.BLANCO)
+                surface.blit(btn_text, (col_x + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
+
+                # Botón de incrementar
+                btn_incrementar = pygame.Rect(col_x + btn_w + 10, btn_y, btn_w, btn_h)
+                pygame.draw.rect(surface, (0, 180, 0), btn_incrementar, border_radius=5)
+                pygame.draw.rect(surface, (0, 120, 0), btn_incrementar, 2, border_radius=5)
+                btn_text = self.fuente_producto.render("+", True, self.BLANCO)
+                surface.blit(btn_text, (col_x + btn_w + 10 + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
+
+                # Guardar referencias a los botones
+                self.ticket_productos_rects[-1] = (producto_rect, i, btn_decrementar, btn_incrementar)
+
                 y_offset += int(0.05 * h)
-        
+
         # Indicador de scroll para ticket
         if max_scroll_ticket > 0:
             scroll_x = x + w - 15
             scroll_y = productos_area_y
             scroll_h = productos_area_h - int(0.1 * h)
-            
+
             # Barra de fondo
             pygame.draw.rect(surface, (200, 200, 200), (scroll_x, scroll_y, 10, scroll_h))
-            
+
             # Barra de scroll
             bar_height = int(scroll_h * self.productos_ticket_visibles / total_productos)
             bar_y = scroll_y + int(scroll_h * self.scroll_ticket / max_scroll_ticket)
             pygame.draw.rect(surface, (100, 100, 100), (scroll_x, bar_y, 10, bar_height))
-        
+
+        # Línea divisora antes del total
+        total_y = y + h - int(0.14 * h)
+        pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), total_y), (x + w - int(0.03 * w), total_y), 2)
+
+        # Total sin IVA
+        total_text = self.fuente_ticket.render(f"Total: ${self.ticket.calcular_total():.2f}", True, COLOR_TEXTO)
+        surface.blit(total_text, (x + int(0.05 * w), total_y + 20))
+
+        # Total con IVA
+        total_iva = self.calcular_total_con_iva()
+        total_iva_text = self.fuente_titulo.render(f"Total + IVA: ${total_iva:.2f}", True, (80, 80, 80))
+        surface.blit(total_iva_text, (x + int(0.05 * w), y + h - int(0.07 * h)))
+
+        # Botón de pagar
+        btn_w, btn_h = int(0.29 * w), int(0.11 * h)
+        btn_x = x + w - btn_w - int(0.02 * w)
+        btn_y = y + h - btn_h - int(0.12 * h)
+        self.boton_pagar_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+        pygame.draw.rect(surface, (0, 180, 0), self.boton_pagar_rect, border_radius=10)
+        pygame.draw.rect(surface, (0, 120, 0), self.boton_pagar_rect, 2, border_radius=10)
+        btn_text = self.fuente_producto.render("Pagar", True, self.BLANCO)
+        surface.blit(btn_text, (btn_x + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
+
+        # Botón de enviar
+        btn_env_w, btn_env_h = int(0.29 * w), int(0.11 * h)
+        btn_env_x = x + int(0.01 * w)
+        btn_env_y = y + h - btn_env_h - int(0.12 * h)
+        self.boton_enviar_rect = pygame.Rect(btn_env_x, btn_env_y, btn_env_w, btn_env_h)
+        pygame.draw.rect(surface, COLOR_BOTON, self.boton_enviar_rect, border_radius=10)
+        pygame.draw.rect(surface, COLOR_BOTON_BORDE, self.boton_enviar_rect, 2, border_radius=10)
+        btn_env_text = self.fuente_producto.render("Enviar", True, self.BLANCO)
+        surface.blit(btn_env_text, (btn_env_x + (btn_env_w - btn_env_text.get_width()) // 2, btn_env_y + (btn_env_h - btn_env_text.get_height()) // 2))
+
+        # Botón de factura
+        btn_factura_w, btn_factura_h = int(0.39 * w), int(0.11 * h)
+        btn_factura_x = x + int(0.30 * w)
+        btn_factura_y = y + h - btn_factura_h - int(0.12 * h)
+        self.boton_factura_rect = pygame.Rect(btn_factura_x, btn_factura_y, btn_factura_w, btn_factura_h)
+        pygame.draw.rect(surface, (0, 120, 220), self.boton_factura_rect, border_radius=10)
+        pygame.draw.rect(surface, (0, 80, 180), self.boton_factura_rect, 2, border_radius=10)
+        btn_factura_text = self.fuente_producto.render("Generar Factura", True, self.BLANCO)
+        surface.blit(btn_factura_text, (btn_factura_x + (btn_factura_w - btn_factura_text.get_width()) // 2, btn_factura_y + (btn_factura_h - btn_factura_text.get_height()) // 2))
+
+    def dibujar_ticket(self, surface):
+        """
+        Dibuja el ticket de venta con todos los productos y botones
+        """
+        # Definir dimensiones del ticket
+        x = self.x + int(0.65 * self.ancho)
+        y = self.y + int(0.15 * self.alto)
+        w = int(0.33 * self.ancho)
+        h = int(0.7 * self.alto)
+
+        # Fondo del ticket
+        pygame.draw.rect(surface, self.BLANCO, (x, y, w, h), border_radius=12)
+        pygame.draw.rect(surface, self.BORDE, (x, y, w, h), 2, border_radius=12)
+
+        # Título del ticket
+        titulo_ticket = self.fuente_titulo.render("Ticket de Compra", True, COLOR_TEXTO)
+        surface.blit(titulo_ticket, (x + int(0.05 * w), y + int(0.03 * h)))
+
+        # Línea divisora
+        pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), y + int(0.1 * h)), (x + w - int(0.03 * w), y + int(0.1 * h)), 2)
+
+        # Encabezados de la tabla
+        headers = ["Nombre", "Unidades", "Precio", "Acción"]
+        header_y = y + int(0.12 * h)
+        col_widths = [int(w*0.4), int(w*0.2), int(w*0.2), int(w*0.2)]
+        col_x = x + int(0.03 * w)
+
+        for i, header in enumerate(headers):
+            header_render = self.fuente_ticket.render(header, True, COLOR_TEXTO)
+            surface.blit(header_render, (col_x, header_y))
+            col_x += col_widths[i]
+
+        # Línea divisora después de encabezados
+        pygame.draw.line(surface, self.BORDE, (x, header_y + int(0.04 * h)), (x + w, header_y + int(0.04 * h)), 2)
+
+        # Área de productos con scroll
+        productos_area_y = header_y + int(0.06 * h)
+        productos_area_h = h - int(0.3 * h)  # Espacio para productos
+
+        # Calcular límites para el scroll del ticket
+        total_productos = len(self.ticket.productos)
+        max_scroll_ticket = max(0, total_productos - self.productos_ticket_visibles)
+        self.scroll_ticket = max(0, min(self.scroll_ticket, max_scroll_ticket))
+
+        # Guardar referencia para detección de clics
+        self.ticket_productos_rects = []
+
+        # Dibujar productos visibles
+        y_offset = productos_area_y
+        start_idx = self.scroll_ticket
+        end_idx = min(start_idx + self.productos_ticket_visibles, total_productos)
+
+        for i in range(start_idx, end_idx):
+            if i < len(self.ticket.productos):
+                producto = self.ticket.productos[i]
+
+                # Crear rect para cada producto
+                producto_rect = pygame.Rect(x, y_offset, w, int(0.05 * h))
+                self.ticket_productos_rects.append((producto_rect, i))
+
+                # Fondo alternado
+                if (i - start_idx) % 2 == 0:
+                    pygame.draw.rect(surface, (250, 250, 250), producto_rect)
+
+                # Dibujar datos del producto
+                col_x = x + int(0.03 * w)
+
+                # Nombre
+                nombre_render = self.fuente_ticket.render(producto['nombre'], True, COLOR_TEXTO)
+                surface.blit(nombre_render, (col_x, y_offset))
+                col_x += col_widths[0]
+
+                # Unidades
+                unidades_render = self.fuente_ticket.render(str(producto['unidades']), True, COLOR_TEXTO)
+                surface.blit(unidades_render, (col_x, y_offset))
+                col_x += col_widths[1]
+
+                # Precio
+                precio_render = self.fuente_ticket.render(f"${producto['precio'] * producto['unidades']:.2f}", True, COLOR_TEXTO)
+                surface.blit(precio_render, (col_x, y_offset))
+                col_x += col_widths[2]
+
+                # Botones de incrementar y decrementar
+                btn_w, btn_h = int(0.08 * w), int(0.04 * h)
+                btn_y = y_offset + (int(0.05 * h) - btn_h) // 2
+
+                # Botón de decrementar
+                btn_decrementar = pygame.Rect(col_x, btn_y, btn_w, btn_h)
+                pygame.draw.rect(surface, (220, 0, 0), btn_decrementar, border_radius=5)
+                pygame.draw.rect(surface, (180, 0, 0), btn_decrementar, 2, border_radius=5)
+                btn_text = self.fuente_producto.render("-", True, self.BLANCO)
+                surface.blit(btn_text, (col_x + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
+
+                # Botón de incrementar
+                btn_incrementar = pygame.Rect(col_x + btn_w + 8, btn_y, btn_w, btn_h)
+                pygame.draw.rect(surface, (0, 180, 0), btn_incrementar, border_radius=5)
+                pygame.draw.rect(surface, (0, 120, 0), btn_incrementar, 2, border_radius=5)
+                btn_text = self.fuente_producto.render("+", True, self.BLANCO)
+                surface.blit(btn_text, (col_x + btn_w + 9 + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
+
+                # Guardar referencias a los botones
+                self.ticket_productos_rects[-1] = (producto_rect, i, btn_decrementar, btn_incrementar)
+
+                y_offset += int(0.05 * h)
+
+        # Indicador de scroll para ticket
+        if max_scroll_ticket > 0:
+            scroll_x = x + w - 15
+            scroll_y = productos_area_y
+            scroll_h = productos_area_h - int(0.1 * h)
+
+            # Barra de fondo
+            pygame.draw.rect(surface, (200, 200, 200), (scroll_x, scroll_y, 10, scroll_h))
+
+            # Barra de scroll
+            bar_height = int(scroll_h * self.productos_ticket_visibles / total_productos)
+            bar_y = scroll_y + int(scroll_h * self.scroll_ticket / max_scroll_ticket)
+            pygame.draw.rect(surface, (100, 100, 100), (scroll_x, bar_y, 10, bar_height))
+
         # Línea divisora antes del total
         total_y = y + h - int(0.14 * h)
         pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), total_y), (x + w - int(0.03 * w), total_y), 2)
@@ -519,98 +753,7 @@ class PuntoVenta:
         pygame.draw.rect(surface, (0, 80, 180), self.boton_factura_rect, 2, border_radius=10)
         btn_factura_text = self.fuente_producto.render("Generar Factura", True, self.BLANCO)
         surface.blit(btn_factura_text, (btn_factura_x + (btn_factura_w - btn_factura_text.get_width()) // 2, btn_factura_y + (btn_factura_h - btn_factura_text.get_height()) // 2))
-        
-    def dibujar_ticket(self, surface):
-        """
-        Dibuja el ticket de venta con todos los productos y botones
-        
-        Args:
-            surface (pygame.Surface): Superficie donde dibujar
-        """
-        # Definir dimensiones del ticket
-        x = self.x + int(0.65 * self.ancho)
-        y = self.y + int(0.15 * self.alto)
-        w = int(0.33 * self.ancho)
-        h = int(0.7 * self.alto)
 
-        # Fondo del ticket
-        pygame.draw.rect(surface, self.BLANCO, (x, y, w, h), border_radius=12)
-        pygame.draw.rect(surface, self.BORDE, (x, y, w, h), 2, border_radius=12)
-
-        # Título del ticket
-        titulo_ticket = self.fuente_titulo.render("Ticket de Compra", True, COLOR_TEXTO)
-        surface.blit(titulo_ticket, (x + int(0.05 * w), y + int(0.03 * h)))
-
-        # Línea divisora
-        pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), y + int(0.1 * h)), (x + w - int(0.03 * w), y + int(0.1 * h)), 2)
-
-        # Encabezados de la tabla
-        headers = ["Nombre", "Unidades", "Precio"]
-        header_y = y + int(0.12 * h)
-        col_width = w // len(headers)
-        for i, header in enumerate(headers):
-            header_render = self.fuente_ticket.render(header, True, COLOR_TEXTO)
-            surface.blit(header_render, (x + i * col_width + int(0.03 * col_width), header_y))
-
-        # Línea divisora después de encabezados
-        pygame.draw.line(surface, self.BORDE, (x, header_y + int(0.04 * h)), (x + w, header_y + int(0.04 * h)), 2)
-
-        # Productos en formato tabla
-        y_offset = header_y + int(0.06 * h)
-        self.botones_eliminar = []  # Inicializar lista de botones eliminar
-        for producto in self.ticket.productos:
-            nombre_render = self.fuente_ticket.render(producto['nombre'], True, COLOR_TEXTO)
-            unidades_render = self.fuente_ticket.render(str(producto['unidades']), True, COLOR_TEXTO)
-            precio_render = self.fuente_ticket.render(f"${producto['precio'] * producto['unidades']:.2f}", True, COLOR_TEXTO)
-
-            surface.blit(nombre_render, (x + int(0.03 * col_width), y_offset))
-            surface.blit(unidades_render, (x + col_width + int(0.03 * col_width), y_offset))
-            surface.blit(precio_render, (x + 2 * col_width + int(0.03 * col_width), y_offset))
-
-            y_offset += int(0.05 * h)
-
-        # Línea divisora antes del total
-        pygame.draw.line(surface, self.BORDE, (x + int(0.03 * w), y + h - int(0.14 * h)), (x + w - int(0.03 * w), y + h - int(0.14 * h)), 2)
-
-        # Total sin IVA
-        total_text = self.fuente_ticket.render(f"Total: ${self.ticket.calcular_total():.2f}", True, COLOR_TEXTO)
-        surface.blit(total_text, (x + int(0.05 * w), y + h - int(0.11 * h)))
-
-        # Total con IVA
-        total_iva = self.calcular_total_con_iva()
-        total_iva_text = self.fuente_titulo.render(f"Total + IVA: ${total_iva:.2f}", True, (80, 80, 80))
-        surface.blit(total_iva_text, (x + int(0.05 * w), y + h - int(0.07 * h)))
-
-        # Botón de pagar
-        btn_w, btn_h = int(0.29 * w), int(0.11 * h)
-        btn_x = x + w - btn_w - int(0.02 * w)
-        btn_y = y + h - btn_h - int(0.12 * h)
-        self.boton_pagar_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
-        pygame.draw.rect(surface, (0, 180, 0), self.boton_pagar_rect, border_radius=10)
-        pygame.draw.rect(surface, (0, 120, 0), self.boton_pagar_rect, 2, border_radius=10)
-        btn_text = self.fuente_producto.render("Pagar", True, self.BLANCO)
-        surface.blit(btn_text, (btn_x + (btn_w - btn_text.get_width()) // 2, btn_y + (btn_h - btn_text.get_height()) // 2))
-
-        # Botón de enviar
-        btn_env_w, btn_env_h = int(0.29 * w), int(0.11 * h)
-        btn_env_x = x + int(0.01 * w)
-        btn_env_y = y + h - btn_env_h - int(0.12 * h)
-        self.boton_enviar_rect = pygame.Rect(btn_env_x, btn_env_y, btn_env_w, btn_env_h)
-        pygame.draw.rect(surface, COLOR_BOTON, self.boton_enviar_rect, border_radius=10)
-        pygame.draw.rect(surface, COLOR_BOTON_BORDE, self.boton_enviar_rect, 2, border_radius=10)
-        btn_env_text = self.fuente_producto.render("Enviar", True, self.BLANCO)
-        surface.blit(btn_env_text, (btn_env_x + (btn_env_w - btn_env_text.get_width()) // 2, btn_env_y + (btn_env_h - btn_env_text.get_height()) // 2))
-
-        # Botón de factura
-        btn_factura_w, btn_factura_h = int(0.39 * w), int(0.11 * h)
-        btn_factura_x = x + int(0.30 * w)
-        btn_factura_y = y + h - btn_factura_h - int(0.12 * h)
-        self.boton_factura_rect = pygame.Rect(btn_factura_x, btn_factura_y, btn_factura_w, btn_factura_h)
-        pygame.draw.rect(surface, (0, 120, 220), self.boton_factura_rect, border_radius=10)
-        pygame.draw.rect(surface, (0, 80, 180), self.boton_factura_rect, 2, border_radius=10)
-        btn_factura_text = self.fuente_producto.render("Generar Factura", True, self.BLANCO)
-        surface.blit(btn_factura_text, (btn_factura_x + (btn_factura_w - btn_factura_text.get_width()) // 2, btn_factura_y + (btn_factura_h - btn_factura_text.get_height()) // 2))
-        
     def dibujar_modal_pago(self, surface):
         """
         Dibuja el modal de pago en efectivo
@@ -855,7 +998,7 @@ class PuntoVenta:
                         # Pago exitoso, registrar venta
                         exito = self.registrar_venta()
                         if exito:
-                            self.ticket.guardar_pdf("ticket.pdf")
+                            self.ticket.guardar_pdf()
                             self.mostrar_alerta("Pago aprobado. Venta registrada.")
                             self.productos = self.cargar_productos_desde_db()
                             self.mostrando_modal_pago = False
@@ -869,33 +1012,47 @@ class PuntoVenta:
     def handle_event(self, event):
         """
         Maneja todos los eventos del sistema
-        
-        Args:
-            event (pygame.event.Event): Evento de Pygame
         """
-        # Manejo de scroll con rueda del mouse
-        if event.type == pygame.MOUSEWHEEL:
-            mouse_pos = pygame.mouse.get_pos()
+        # IMPORTANTE: Manejar eventos de teclado para modales ANTES de cualquier return
+        
+        # Eventos del formulario de productos - MOVER AL PRINCIPIO
+        if self.mostrando_formulario:
+            # Manejar eventos de teclado para todos los campos
+            for box in self.formulario_boxes:
+                box.handle_event(event)
             
-            # Scroll en el panel de productos
-            if (self.x + int(0.02 * self.ancho) <= mouse_pos[0] <= self.x + int(0.6 * self.ancho) and
-                self.y + int(0.15 * self.alto) <= mouse_pos[1] <= self.y + int(0.9 * self.alto)):
-                if event.y > 0:  # Scroll arriba
-                    self.scroll_productos = max(0, self.scroll_productos - 1)
-                else:  # Scroll abajo
-                    productos_filtrados = self.filtrar_productos()
-                    total_filas = (len(productos_filtrados) + 2) // 3
-                    max_scroll = max(0, total_filas - self.filas_visibles)
-                    self.scroll_productos = min(max_scroll, self.scroll_productos + 1)
+            # Manejar clics en botones
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.formulario_btn_guardar and self.formulario_btn_guardar.collidepoint(event.pos):
+                    self.guardar_formulario_agregar_producto()
+                elif self.formulario_btn_cancelar and self.formulario_btn_cancelar.collidepoint(event.pos):
+                    self.mostrando_formulario = False
+            return  # Solo retornar después de manejar TODOS los eventos
+
+        # Eventos del modal de correo - MOVER AL PRINCIPIO
+        if getattr(self, "mostrando_modal_correo", False):
+            # Manejar eventos de teclado para el campo de correo
+            if self.correo_box:
+                self.correo_box.handle_event(event)
             
-            # Scroll en el ticket
-            elif (self.x + int(0.65 * self.ancho) <= mouse_pos[0] <= self.x + int(0.98 * self.ancho) and
-                self.y + int(0.15 * self.alto) <= mouse_pos[1] <= self.y + int(0.8 * self.alto)):
-                if event.y > 0:  # Scroll arriba
-                    self.scroll_ticket = max(0, self.scroll_ticket - 1)
-                else:  # Scroll abajo
-                    max_scroll = max(0, len(self.ticket.productos) - self.productos_ticket_visibles)
-                    self.scroll_ticket = min(max_scroll, self.scroll_ticket + 1)
+            # Manejar clics en botones
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.boton_modal_enviar.collidepoint(event.pos):
+                    correo = self.correo_box.get_value().strip()
+                    if self.validar_correo(correo):
+                        enviado = self.enviar_ticket_por_correo(correo)
+                        if enviado:
+                            self.correo_mensaje = "¡Ticket enviado!"
+                            self.mostrando_modal_correo = False
+                            self.mostrar_alerta("Ticket enviado correctamente.")
+                        else:
+                            self.correo_mensaje = "Error al enviar el correo."
+                    else:
+                        self.correo_mensaje = "Correo inválido."
+                elif self.boton_modal_cancelar.collidepoint(event.pos):
+                    self.mostrando_modal_correo = False
+                    self.correo_mensaje = ""
+            return  # Solo retornar después de manejar TODOS los eventos
 
         # Eventos del modal de pago
         if self.mostrando_modal_pago:
@@ -914,7 +1071,10 @@ class PuntoVenta:
                     else:
                         exito = self.registrar_venta()
                         if exito:
-                            self.ticket.guardar_pdf("ticket.pdf")
+                            self.ticket.efectivo_recibido=efectivo
+                            self.ticket.cambio=efectivo-total_iva
+                            self.ticket.guardar_pdf()
+                            self.ticket.limpiar
                             self.mostrar_alerta(f"Venta registrada. Cambio: ${efectivo - total_iva:.2f}")
                             self.productos = self.cargar_productos_desde_db()
                             self.mostrando_modal_pago = False
@@ -931,12 +1091,36 @@ class PuntoVenta:
                     total_iva = self.calcular_total_con_iva()
                     self.procesar_pago_tarjeta(total_iva)
             return
-        
+
+        # Manejo de scroll con rueda del mouse
+        if event.type == pygame.MOUSEWHEEL:
+            mouse_pos = pygame.mouse.get_pos()
+
+            # Scroll en el panel de productos
+            if (self.x + int(0.02 * self.ancho) <= mouse_pos[0] <= self.x + int(0.6 * self.ancho) and
+                self.y + int(0.15 * self.alto) <= mouse_pos[1] <= self.y + int(0.9 * self.alto)):
+                if event.y > 0:  # Scroll arriba
+                    self.scroll_productos = max(0, self.scroll_productos - 1)
+                else:  # Scroll abajo
+                    productos_filtrados = self.filtrar_productos()
+                    total_filas = (len(productos_filtrados) + 2) // 3
+                    max_scroll = max(0, total_filas - self.filas_visibles)
+                    self.scroll_productos = min(max_scroll, self.scroll_productos + 1)
+
+            # Scroll en el ticket
+            elif (self.x + int(0.65 * self.ancho) <= mouse_pos[0] <= self.x + int(0.98 * self.ancho) and
+                self.y + int(0.15 * self.alto) <= mouse_pos[1] <= self.y + int(0.8 * self.alto)):
+                if event.y > 0:  # Scroll arriba
+                    self.scroll_ticket = max(0, self.scroll_ticket - 1)
+                else:  # Scroll abajo
+                    max_scroll = max(0, len(self.ticket.productos) - self.productos_ticket_visibles)
+                    self.scroll_ticket = min(max_scroll, self.scroll_ticket + 1)
+
         if event.type == pygame.MOUSEBUTTONDOWN:
             # Clic derecho para eliminar productos del ticket
             if event.button == 3:  # Botón derecho
                 if hasattr(self, 'ticket_productos_rects'):
-                    for rect, idx in self.ticket_productos_rects:
+                    for rect, idx, btn_decrementar, btn_incrementar in self.ticket_productos_rects:
                         if rect.collidepoint(event.pos):
                             if 0 <= idx < len(self.ticket.productos):
                                 producto_eliminado = self.ticket.productos[idx]
@@ -948,89 +1132,95 @@ class PuntoVenta:
                                 self.scroll_ticket = min(self.scroll_ticket, max_scroll)
                             break
 
-        # Eventos del modal de correo
-        if getattr(self, "mostrando_modal_correo", False):
-            self.correo_box.handle_event(event)
+            # Eventos principales del POS
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if self.boton_modal_enviar.collidepoint(event.pos):
-                    correo = self.correo_box.get_value().strip()
-                    if self.validar_correo(correo):
-                        enviado = self.enviar_ticket_por_correo(correo)
-                        if enviado:
-                            self.correo_mensaje = "¡Ticket enviado!"
-                            self.mostrando_modal_correo = False
-                            self.mostrar_alerta("Ticket enviado correctamente.")
-                        else:
-                            self.correo_mensaje = "Error al enviar el correo."
-                    else:
-                        self.correo_mensaje = "Correo inválido."
-                elif self.boton_modal_cancelar.collidepoint(event.pos):
-                    self.mostrando_modal_correo = False
+                mouse_x, mouse_y = event.pos
+
+                # Campo de búsqueda
+                if hasattr(self, "busq_rect") and self.busq_rect and self.busq_rect.collidepoint(mouse_x, mouse_y):
+                    self.busqueda_activa = True
+                # Botón agregar producto
+                elif hasattr(self, "boton_agregar_producto_rect") and self.boton_agregar_producto_rect and self.boton_agregar_producto_rect.collidepoint(mouse_x, mouse_y):
+                    self.mostrar_formulario_agregar_producto()
+                # Botón enviar por correo
+                elif hasattr(self, "boton_enviar_rect") and self.boton_enviar_rect and self.boton_enviar_rect.collidepoint(mouse_x, mouse_y):
+                    self.mostrando_modal_correo = True
+                    self.correo_box = None
                     self.correo_mensaje = ""
-            return
+                # Botón generar factura
+                elif hasattr(self, "boton_factura_rect") and self.boton_factura_rect and self.boton_factura_rect.collidepoint(mouse_x, mouse_y):
+                    try:
+                        from factura import Factura
+                        import asyncio
+                        # Crear una instancia de factura
+                        factura = Factura(self.x, self.y, self.ancho, self.alto)
+                        # Integración con sistema de facturación
+                        asyncio.run(factura.main())
+                    except Exception as e:
+                        self.mostrar_alerta(f"Error al generar factura: {e}")
+                else:
+                    self.busqueda_activa = False
 
-        # Eventos del formulario de productos
-        if self.mostrando_formulario:
-            for box in self.formulario_boxes:
-                box.handle_event(event)
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if self.formulario_btn_guardar and self.formulario_btn_guardar.collidepoint(event.pos):
-                    self.guardar_formulario_agregar_producto()
-                elif self.formulario_btn_cancelar and self.formulario_btn_cancelar.collidepoint(event.pos):
-                    self.mostrando_formulario = False
-                return
+                    # Detectar clic en productos
+                    for rect, idx in self.product_rects:
+                        if rect and rect.collidepoint(mouse_x, mouse_y):
+                            prod = self.productos[idx]
+                            # Verificar si el producto ya está en el ticket
+                            if self.ticket.buscar_producto_por_nombre(prod["nombre"]):
+                                # Si ya está, obtener la cantidad actual en el ticket
+                                cantidad_actual = self.ticket.obtener_cantidad_producto(prod["nombre"])
+                                cantidad_nueva = cantidad_actual + 1
+                                print(cantidad_nueva)
+                                # Verificar si hay suficiente stock para la nueva cantidad
+                                if self.verificar_stock(prod["ID_CatProducto"], cantidad_nueva):
+                                    self.ticket.agregar_producto(prod["nombre"], 1, prod["precio"], prod["ID_CatProducto"])
+                                    self.mostrar_alerta(f"Incrementada cantidad de {prod['nombre']} en el ticket")
+                                    print(f"Incrementada cantidad de {prod['nombre']} en el ticket")
+                                else:
+                                    self.mostrar_alerta(f"No hay suficiente stock para agregar más '{prod['nombre']}'")
+                            else:
+                                # Si no está, verificar stock para 1 unidad
+                                if self.verificar_stock(prod["ID_CatProducto"], 1):
+                                    self.ticket.agregar_producto(prod["nombre"], 1, prod["precio"], prod["ID_CatProducto"])
+                                    self.mostrar_alerta(f"Producto agregado al ticket: {prod['nombre']}")
+                                    print(f"Producto agregado al ticket: {prod['nombre']}")
+                                else:
+                                    self.mostrar_alerta(f"No hay suficiente stock de '{prod['nombre']}'")
+                            break  # Salir del bucle una vez que se encuentra el producto seleccionado
 
-        # Eventos principales del POS
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            mouse_x, mouse_y = event.pos
-            
-            # Campo de búsqueda
-            if hasattr(self, "busq_rect") and self.busq_rect and self.busq_rect.collidepoint(mouse_x, mouse_y):
-                self.busqueda_activa = True
-            # Botón agregar producto
-            elif hasattr(self, "boton_agregar_producto_rect") and self.boton_agregar_producto_rect and self.boton_agregar_producto_rect.collidepoint(mouse_x, mouse_y):
-                self.mostrar_formulario_agregar_producto()
-            # Botón enviar por correo
-            elif hasattr(self, "boton_enviar_rect") and self.boton_enviar_rect and self.boton_enviar_rect.collidepoint(mouse_x, mouse_y):
-                self.mostrando_modal_correo = True
-                self.correo_box = None
-                self.correo_mensaje = ""
-                return
-            # Botón generar factura
-            elif hasattr(self, "boton_factura_rect") and self.boton_factura_rect and self.boton_factura_rect.collidepoint(mouse_x, mouse_y):
-                try:
-                    from factura import Factura
-                    import asyncio
-                    # Crear una instancia de factura 
-                    factura = Factura(self.x, self.y, self.ancho, self.alto) 
-                    # Integración con sistema de facturación
-                    asyncio.run(factura.main())
-                except Exception as e:
-                    self.mostrar_alerta(f"Error al generar factura: {e}")
-                return
-            else:
-                self.busqueda_activa = False
-                
-                # Detectar clic en productos
-                for rect, idx in self.product_rects:
-                    if rect and rect.collidepoint(mouse_x, mouse_y):
-                        prod = self.productos[idx]
-                        if self.verificar_stock(prod["ID_CatProducto"], 1):
-                            self.ticket.agregar_producto(prod["nombre"], 1, prod["precio"], prod["ID_CatProducto"])
-                            self.mostrar_alerta("")
-                            print(f"Producto agregado al ticket: {prod['nombre']}")
+                    # Botón pagar
+                    if self.boton_pagar_rect and self.boton_pagar_rect.collidepoint(mouse_x, mouse_y):
+                        if self.ticket.productos:
+                            self.mostrando_modal_pago = True
+                            self.efectivo_box = None
+                            self.efectivo_mensaje = ""
+                            
                         else:
-                            self.mostrar_alerta(f"No hay suficiente stock de '{prod['nombre']}'")
-                
-                # Botón pagar
-                if self.boton_pagar_rect and self.boton_pagar_rect.collidepoint(mouse_x, mouse_y):
-                    if self.ticket.productos:
-                        self.mostrando_modal_pago = True
-                        self.efectivo_box = None
-                        self.efectivo_mensaje = ""
-                    else:
-                        self.mostrar_alerta("El ticket está vacío.")
-                        
+                            self.mostrar_alerta("El ticket está vacío.")
+
+                    # Botones de incrementar y decrementar unidades
+                    if hasattr(self, 'ticket_productos_rects'):
+                        for rect, idx, btn_decrementar, btn_incrementar in self.ticket_productos_rects:
+                            if btn_decrementar.collidepoint(event.pos):
+                                if 0 <= idx < len(self.ticket.productos):
+                                    producto = self.ticket.productos[idx]
+                                    if producto['unidades'] > 1:
+                                        producto['unidades'] -= 1
+                                    else:
+                                        # Eliminar producto si las unidades llegan a 0
+                                        self.ticket.eliminar_producto(idx)
+                                        self.mostrar_alerta(f"Producto '{producto['nombre']}' eliminado del ticket")
+                                        # Ajustar scroll si es necesario
+                                        max_scroll = max(0, len(self.ticket.productos) - self.productos_ticket_visibles)
+                                        self.scroll_ticket = min(self.scroll_ticket, max_scroll)
+                            elif btn_incrementar.collidepoint(event.pos):
+                                if 0 <= idx < len(self.ticket.productos):
+                                    producto = self.ticket.productos[idx]
+                                    if self.verificar_stock(producto['id'], producto['unidades'] + 1):
+                                        producto['unidades'] += 1
+                                    else:
+                                        self.mostrar_alerta(f"No hay suficiente stock de '{producto['nombre']}'")
+
         # Eventos de teclado para búsqueda
         if event.type == pygame.KEYDOWN and self.busqueda_activa:
             if event.key == pygame.K_BACKSPACE:
@@ -1042,7 +1232,7 @@ class PuntoVenta:
             else:
                 if len(self.busqueda_texto) < 30 and event.unicode.isprintable():
                     self.busqueda_texto += event.unicode
-
+                    
     def mostrar_formulario_agregar_producto(self):
         """
         Configura y muestra el formulario para agregar/actualizar productos
@@ -1214,56 +1404,86 @@ class PuntoVenta:
             print(f"Error en PuntoVenta.verificar_stock: {e}")
             return False
 
-    def registrar_venta(self):
-        """
-        Registra una venta completa en la base de datos
-        
-        Proceso:
-        1. Inserta la venta principal con fecha y total
-        2. Inserta el detalle de cada producto
-        3. Actualiza el stock de cada producto
-        
-        Returns:
-            bool: True si la venta se registró exitosamente
-        """
-        try:
-            conexion = Conexion()
-            total_venta = self.ticket.calcular_total()
-
-            fecha_venta = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-            # Insertar venta principal
-            insert_venta_query = """
-            INSERT INTO Venta (Fecha_venta, Total_venta)
-            VALUES (%s, %s)
+    def registrar_venta(self, tipo_pago="Efectivo"):
             """
-            conexion.update(insert_venta_query, (fecha_venta, total_venta))
+            Registra una venta completa en la base de datos
+            
+            Proceso:
+            1. Inserta la venta principal con fecha y total
+            2. Inserta el detalle de cada producto
+            3. Actualiza el stock de cada producto
+            
+            Args:
+                tipo_pago (str): Tipo de pago usado ("Efectivo" o "Tarjeta")
+            
+            Returns:
+                bool: True si la venta se registró exitosamente
+            """
+            try:
+                conexion = Conexion()
+                conexion.conectar()
+                
+                if not conexion.conn:
+                    print("Error: No se pudo conectar a la base de datos")
+                    return False
+                    
+                total_venta = self.calcular_total_con_iva()  # Total con IVA
+                fecha_venta = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-            # Obtener ID de la venta recién creada
-            id_venta_query = "SELECT LAST_INSERT_ID() AS ID_Venta"
-            id_venta = conexion.consultar(id_venta_query)[0]['ID_Venta']
-
-            # Insertar detalles de la venta
-            for producto in self.ticket.productos:
-                insert_detalle_venta_query = """
-                INSERT INTO Detalle_Venta (Cantidad, PrecioUnitario, Subtotal, FK_ID_Venta, FK_ID_CatProducto)
-                VALUES (%s, %s, %s, %s, %s)
+                # Insertar venta principal
+                insert_venta_query = """
+                INSERT INTO Venta (Fecha_venta, Total_venta)
+                VALUES (%s, %s)
                 """
-                subtotal = producto["unidades"] * producto["precio"]
-                conexion.update(insert_detalle_venta_query, (producto["unidades"], producto["precio"], subtotal, id_venta, producto["id"]))
-
-                # Actualizar stock del producto
-                update_catproducto_query = """
-                UPDATE CatProducto
-                SET Stock = Stock - %s
-                WHERE ID_CatProducto = %s
-                """
-                conexion.update(update_catproducto_query, (producto["unidades"], producto["id"]))
-
-            return True
-        except Exception as e:
-            print(f"Error durante la venta: {e}")
-            return False
+                
+                try:
+                    conexion.cursor.execute(insert_venta_query, (fecha_venta, total_venta))
+                    conexion.conn.commit()
+                    
+                    # Obtener ID de la venta recién creada
+                    id_venta = conexion.cursor.lastrowid
+                    print(f"Venta registrada con ID: {id_venta}")
+                    
+                    # Insertar detalles de la venta
+                    for producto in self.ticket.productos:
+                        insert_detalle_venta_query = """
+                        INSERT INTO Detalle_Venta (Cantidad, PrecioUnitario, Subtotal, FK_ID_Venta, FK_ID_CatProducto)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """
+                        subtotal = float(producto["unidades"]) * float(producto["precio"])
+                        
+                        conexion.cursor.execute(insert_detalle_venta_query, 
+                            (producto["unidades"], producto["precio"], subtotal, id_venta, producto["id"]))
+                        
+                        # Actualizar stock del producto
+                        update_catproducto_query = """
+                        UPDATE CatProducto
+                        SET Stock = Stock - %s
+                        WHERE ID_CatProducto = %s
+                        """
+                        conexion.cursor.execute(update_catproducto_query, 
+                            (producto["unidades"], producto["id"]))
+                    
+                    # Confirmar todos los cambios
+                    conexion.conn.commit()
+                    
+                    # Actualizar el ticket con el tipo de pago antes de guardar el PDF
+                    self.ticket.tipo_pago = tipo_pago
+                    
+                    
+                    print(f"Venta completada exitosamente. Tipo de pago: {tipo_pago}")
+                    return True
+                    
+                except Error as e:
+                    print(f"Error al insertar en la base de datos: {e}")
+                    conexion.conn.rollback()
+                    return False
+                    
+            except Exception as e:
+                print(f"Error durante la venta: {e}")
+                return False
+            finally:
+                conexion.cerrar()
 
     def validar_correo(self, correo):
         """

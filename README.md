@@ -36,6 +36,9 @@ Este módulo permite configurar aspectos esenciales de la aplicación, como camb
 - requests
 - reportlab
 - fpdf
+- BytesIO
+- Image
+- requests
 
 ### **Instrucciones**
 

@@ -44,7 +44,7 @@ ventana = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABL
 pygame.display.set_caption("Panadería Bambi")  # Establece el título de la ventana.
 
 # Definición de colores utilizados en la interfaz
-color_fondo = (241, 236, 227)  # Color de fondo.
+color_fondo = (241, 236, 227)  # Color de fondo. 
 color_titulo = (205, 153, 194)  # Color del título.
 color_texto_titulo = (77, 68, 64)  # Color del texto del título.
 color_texto = (204, 208, 216)  # Color del texto.
@@ -321,6 +321,9 @@ def main(nombre_usuario, puesto):
                         filename = f"screenshot_{now}.png"
                         pygame.image.save(ventana, filename)
                         print(f"Captura de pantalla guardada como {filename}")
+                    # --- Salir con ESC ---
+                    elif event.key == pygame.K_ESCAPE:
+                        en_menu = False  # Salir del menú al presionar ESC
                 
                 if mostrar_recetas:
                     receta_instancia.handle_event(event)

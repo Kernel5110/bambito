@@ -290,7 +290,7 @@ class almacen:
 
     def dibujar_tabla(self, surface, x, y, width, row_height, datos):
         """
-        Dibuja la tabla de inventario con los datos actuales
+        Dibuja la tabla de inventario con los datos actuales (versión editable)
         
         Args:
             surface (pygame.Surface): Superficie donde dibujar
@@ -304,7 +304,10 @@ class almacen:
         col_widths = [
             int(width*0.28), int(width*0.21), int(width*0.16), int(width*0.16), int(width*0.16)
         ]
-
+        
+        # Almacenar referencias a las celdas para manejo de clics
+        self.celdas_tabla = []
+        
         # Dibujar encabezados
         col_x = x
         for i, col in enumerate(columnas):
@@ -317,19 +320,190 @@ class almacen:
 
         # Dibujar filas de datos
         fila_y = y + row_height
-        for fila in datos:
+        for fila_idx, fila in enumerate(datos):
             col_x = x
             for i, key in enumerate(["nombre", "categoria", "precio", "cantidad", "estado"]):
-                pygame.draw.rect(surface, self.color_tabla_row, (col_x, fila_y, col_widths[i], row_height))
-                pygame.draw.rect(surface, self.color_tabla_border, (col_x, fila_y, col_widths[i], row_height), 1)
+                # Crear rectángulo para la celda
+                celda_rect = pygame.Rect(col_x, fila_y, col_widths[i], row_height)
+                
+                # Dibujar celda
+                color_celda = self.color_tabla_row
+                
+                # Si esta celda está siendo editada, usar un color diferente
+                if hasattr(self, 'celda_editando') and self.celda_editando == (fila_idx, i):
+                    color_celda = (220, 240, 255)  # Azul claro para celda en edición
+                
+                pygame.draw.rect(surface, color_celda, celda_rect)
+                pygame.draw.rect(surface, self.color_tabla_border, celda_rect, 1)
+                
+                # Mostrar el valor correspondiente
                 valor = fila[key]
                 if key == "precio":
                     valor = f"${valor:.2f}"
-                texto = self.fuente_tabla.render(str(valor), True, self.NEGRO)
-                text_rect = texto.get_rect(center=(col_x + col_widths[i] // 2, fila_y + row_height // 2))
-                surface.blit(texto, text_rect)
+                    
+                # Si esta celda se está editando, mostrar el InputBox
+                if hasattr(self, 'celda_editando') and self.celda_editando == (fila_idx, i) and hasattr(self, 'input_edicion'):
+                    self.input_edicion.rect.x = col_x + 5
+                    self.input_edicion.rect.y = fila_y + (row_height - self.input_edicion.rect.height) // 2
+                    self.input_edicion.rect.width = col_widths[i] - 10
+                    self.input_edicion.draw(surface)
+                else:
+                    texto = self.fuente_tabla.render(str(valor), True, self.NEGRO)
+                    text_rect = texto.get_rect(center=(col_x + col_widths[i] // 2, fila_y + row_height // 2))
+                    surface.blit(texto, text_rect)
+                
+                # Almacenar referencia a esta celda si es editable
+                if key != "categoria":  # La categoría no es editable
+                    self.celdas_tabla.append((celda_rect, fila_idx, i, key))
+                    
                 col_x += col_widths[i]
             fila_y += row_height
+
+        # Si estamos mostrando el mensaje de edición
+        if hasattr(self, 'mensaje_edicion') and self.mensaje_edicion:
+            mensaje_y = y + row_height * (len(datos) + 1) + 10
+            font_msg = pygame.font.SysFont("Open Sans", int(self.alto * 0.035))
+            color = (0, 120, 0) if "exitosamente" in self.mensaje_edicion else (200, 0, 0)
+            msg = font_msg.render(self.mensaje_edicion, True, color)
+            surface.blit(msg, (x + (width - msg.get_width()) // 2, mensaje_y))
+
+    def iniciar_edicion_celda(self, fila_idx, col_idx, key):
+        """
+        Inicia la edición de una celda
+        
+        Args:
+            fila_idx (int): Índice de la fila
+            col_idx (int): Índice de la columna
+            key (str): Clave del dato en el diccionario
+        """
+        # Solo permitir editar si hay datos
+        if not self.datos_tabla or fila_idx >= len(self.datos_tabla):
+            return
+        
+        # Obtener el valor actual
+        valor_actual = self.datos_tabla[fila_idx][key]
+        
+        # Convertir a string si es necesario
+        if key == "precio":
+            valor_actual = str(valor_actual)
+        else:
+            valor_actual = str(valor_actual)
+        
+        # Configurar InputBox para edición
+        font = pygame.font.SysFont("Open Sans", int(self.alto * 0.04))
+        numeric = key in ["precio", "cantidad"]
+        self.input_edicion = InputBox(0, 0, 100, int(self.alto * 0.05), 
+                                    text=valor_actual, font=font, numeric=numeric)
+        
+        # Marcar esta celda como en edición
+        self.celda_editando = (fila_idx, col_idx)
+        
+        # Mensaje de edición
+        self.mensaje_edicion = "Presiona ENTER para guardar o ESC para cancelar"
+   
+    def finalizar_edicion(self, guardar=True):
+        """
+        Finaliza la edición de una celda
+        
+        Args:
+            guardar (bool): Si True, guarda los cambios
+        """
+        if not hasattr(self, 'celda_editando') or not hasattr(self, 'input_edicion'):
+            return
+        
+        if guardar:
+            # Obtener la fila y columna que se está editando
+            fila_idx, col_idx = self.celda_editando
+            
+            # Obtener la clave correspondiente
+            for rect, f_idx, c_idx, key in self.celdas_tabla:
+                if f_idx == fila_idx and c_idx == col_idx:
+                    # Obtener el nuevo valor
+                    nuevo_valor = self.input_edicion.get_value()
+                    
+                    # Validar y convertir según el tipo de dato
+                    try:
+                        if key == "precio":
+                            nuevo_valor = float(nuevo_valor)
+                        elif key == "cantidad":
+                            nuevo_valor = int(nuevo_valor)
+                        elif key == "estado" and nuevo_valor not in ["Disponible", "Agotado", "Descontinuado"]:
+                            self.mensaje_edicion = "Estado inválido. Use: Disponible, Agotado, Descontinuado"
+                            return
+                        
+                        # Guardar el cambio en la base de datos
+                        self.actualizar_dato(fila_idx, key, nuevo_valor)
+                        
+                        # Actualizar el valor en la vista
+                        self.datos_tabla[fila_idx][key] = nuevo_valor
+                        
+                        self.mensaje_edicion = "Dato actualizado exitosamente"
+                    except ValueError:
+                        self.mensaje_edicion = "Valor inválido para este campo"
+                        return
+                    break
+        
+        # Limpiar variables de edición
+        delattr(self, 'celda_editando')
+        delattr(self, 'input_edicion')
+        
+        # Programar que el mensaje desaparezca después de 3 segundos
+        if hasattr(self, 'mensaje_edicion') and self.mensaje_edicion:
+            pygame.time.set_timer(pygame.USEREVENT + 1, 3000)  # 3 segundos
+
+    def actualizar_dato(self, fila_idx, key, nuevo_valor):
+        """
+        Actualiza un dato en la base de datos
+        
+        Args:
+            fila_idx (int): Índice de la fila
+            key (str): Clave del dato (nombre, precio, cantidad, estado)
+            nuevo_valor: Nuevo valor a guardar
+        """
+        # Obtener el elemento que se está modificando
+        if fila_idx >= len(self.datos_tabla):
+            return False
+        
+        elemento = self.datos_tabla[fila_idx]
+        nombre = elemento["nombre"]  # Usaremos el nombre para identificar el registro
+        
+        # Conectar a la base de datos
+        conexion = Conexion()
+        conexion.conectar()
+        
+        # La tabla depende de la categoría seleccionada
+        tabla = "Insumo" if self.opcion_seleccionada == "INSUMOS" else "MateriaPrima"
+        
+        # Mapear key a nombre de columna en la base de datos
+        # El mapeo puede variar según tu esquema de base de datos
+        columnas = {
+            "nombre": "Nombre",
+            "precio": "Precio",
+            "cantidad": "Cantidad",
+            "estado": "Estado"
+        }
+        
+        # Columna a actualizar
+        columna = columnas.get(key, key)
+        
+        # Query de actualización
+        query = f"""
+            UPDATE {tabla}
+            SET {columna} = %s
+            WHERE Nombre = %s
+        """
+        
+        try:
+            # Ejecutar la actualización
+            conexion.cursor.execute(query, (nuevo_valor, nombre))
+            conexion.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error al actualizar dato: {e}")
+            self.mensaje_edicion = f"Error: {str(e)}"
+            return False
+        finally:
+            conexion.cerrar()
 
     def dibujar_campo_busqueda(self, surface, x, y, w, h):
         """
@@ -356,6 +530,20 @@ class almacen:
         Args:
             event (pygame.event.Event): Evento de Pygame
         """
+        # Eventos de edición de tabla
+        if hasattr(self, 'celda_editando') and hasattr(self, 'input_edicion'):
+            # Si estamos editando, dar prioridad a eventos del InputBox
+            self.input_edicion.handle_event(event)
+            
+            # Teclas para confirmar o cancelar edición
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    self.finalizar_edicion(guardar=True)
+                elif event.key == pygame.K_ESCAPE:
+                    self.finalizar_edicion(guardar=False)
+                    self.mensaje_edicion = "Edición cancelada"
+            return
+
         # Eventos del formulario
         if self.mostrando_formulario:
             for box in self.formulario_boxes:
@@ -367,11 +555,35 @@ class almacen:
                     self.mostrando_formulario = False
                     self.formulario_mensaje = ""
                 return
+         # Temporizador para ocultar mensajes
+        if event.type == pygame.USEREVENT + 1:
+            if hasattr(self, 'mensaje_edicion'):
+                self.mensaje_edicion = ""
+            pygame.time.set_timer(pygame.USEREVENT + 1, 0)  # Detener el temporizador
+
 
         # Eventos de navegación y búsqueda
         if event.type == pygame.MOUSEBUTTONDOWN:
             mouse_pos = pygame.mouse.get_pos()
             
+            # Detección de doble clic en celdas de la tabla
+            if event.button == 1 and hasattr(self, 'celdas_tabla'):  # Botón izquierdo
+                for rect, fila_idx, col_idx, key in self.celdas_tabla:
+                    if rect.collidepoint(mouse_pos):
+                        # Verificar si es doble clic (menos de 500ms entre clics)
+                        tiempo_actual = pygame.time.get_ticks()
+                        if (hasattr(self, 'ultimo_clic_tiempo') and 
+                            tiempo_actual - self.ultimo_clic_tiempo < 500 and
+                            hasattr(self, 'ultima_celda_clic') and 
+                            self.ultima_celda_clic == (fila_idx, col_idx)):
+                            # Es un doble clic, iniciar edición
+                            self.iniciar_edicion_celda(fila_idx, col_idx, key)
+                        
+                        # Registrar este clic para detectar doble clic
+                        self.ultimo_clic_tiempo = tiempo_actual
+                        self.ultima_celda_clic = (fila_idx, col_idx)
+                        break
+
             # Botones de navegación
             for i, rect in enumerate(self.boton_rects):
                 if rect.collidepoint(mouse_pos):
@@ -436,7 +648,7 @@ class almacen:
 
         # Título
         font_title = pygame.font.SysFont("Open Sans", int(self.alto * 0.06), bold=True)
-        titulo = "Agregar Insumo" if self.opcion_seleccionada == "INSUMOS" else "Agregar Materia Prima"
+        titulo = "Agregar Materia Prima" if self.opcion_seleccionada == "MATERIA PRIMA" else "Agregar Insumo"
         text_title = font_title.render(titulo, True, (0, 0, 0))
         title_x = form_x + (form_w - text_title.get_width()) // 2  # Título centrado
         surface.blit(text_title, (title_x, form_y + 20))
@@ -519,7 +731,7 @@ class almacen:
         y = self.y + int(self.alto * 0.20)
         
         # Definir campos según el tipo
-        if self.opcion_seleccionada == "INSUMOS":
+        if self.opcion_seleccionada == "MATERIA PRIMA":
             labels = [
                 "Nombre", "Precio", "stock_minimo", "Descripción", "Cantidad",
                 "Entrada (YYYY-MM-DD)", "Caducidad (YYYY-MM-DD)"
@@ -562,7 +774,7 @@ class almacen:
         Proceso:
         1. Valida campos obligatorios
         2. Convierte tipos de datos
-        3. Valida fechas (para insumos)
+        3. Valida fechas (para materia prima)
         4. Inserta en la base de datos
         
         Returns:
@@ -570,7 +782,7 @@ class almacen:
         """
         valores = [box.get_value().strip() for box in self.formulario_boxes]
 
-        if self.opcion_seleccionada == "INSUMOS":
+        if self.opcion_seleccionada == "MATERIA PRIMA":
             # Esperado: Nombre, Precio, stock_minimo, Descripción, Cantidad, Fecha Entrada, Fecha Caducidad
             if not valores[0] or not valores[1] or not valores[2] or not valores[4] or not valores[5] or not valores[6]:
                 self.formulario_mensaje = "Todos los campos son obligatorios."
@@ -596,10 +808,11 @@ class almacen:
             iva = 0.16
             conexion = Conexion()
             insert = """
-                INSERT INTO Insumo
-                (Nombre, Precio, stock_minimo, Descripcion, Cantidad, IVA, Estado, FK_ID_TipoInsumo, fecha_entrada, fecha_caducidad)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
-            """
+                INSERT INTO MateriaPrima
+                (Nombre, Precio, stock_minimo, Descripcion, Cantidad, IVA, Estado, FK_ID_MedidaCantidad, FK_ID_TipoMateriaPrima, fecha_entrada, fecha_caducidad)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 1, %s, %s)
+            """#"Nombre", "Precio", "stock_minimo", "Descripción", "Cantidad",
+                #"Entrada (YYYY-MM-DD)", "Caducidad (YYYY-MM-DD)"
             conexion.conectar()
             conexion.cursor.execute(insert, (
                 nombre, precio, stock_minimo, descripcion, cantidad, iva, estado, fecha_entrada, fecha_caducidad
@@ -607,7 +820,7 @@ class almacen:
 
             conexion.conn.commit()
             conexion.cerrar()
-            self.formulario_mensaje = f"Insumo '{nombre}' agregado."
+            self.formulario_mensaje = f"Materia Prima '{nombre}' agregado."
             self.cargar_datos_tabla()
             self.mostrando_formulario = False
             self.formulario_mensaje = ""
@@ -634,15 +847,15 @@ class almacen:
             conexion = Conexion()
 
             insert = """
-                INSERT INTO MateriaPrima (Nombre, Precio, stock_minimo, Descripcion, Cantidad, IVA, Estado, FK_ID_MedidaCantidad, FK_ID_TipoMateriaPrima)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 1)
+                INSERT INTO Insumo (Nombre, Precio, stock_minimo, Descripcion, Cantidad, Estado, FK_ID_TipoInsumo)
+                VALUES (%s, %s, %s, %s, %s, %s, 1)
             """
 
             conexion.conectar()
-            conexion.cursor.execute(insert, (nombre, precio, stock_minimo, descripcion, cantidad, iva, estado))
+            conexion.cursor.execute(insert, (nombre, precio, stock_minimo, descripcion, cantidad, estado))
             conexion.conn.commit()
             conexion.cerrar()
-            self.formulario_mensaje = f"Materia Prima '{nombre}' agregada."
+            self.formulario_mensaje = f"Insumo '{nombre}' agregada."
             self.cargar_datos_tabla()
             self.mostrando_formulario = False
             self.formulario_mensaje = ""

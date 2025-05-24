@@ -3,15 +3,26 @@ import platform
 import pygame
 import datetime
 import smtplib
+import os
+import glob
+import uuid
+import hashlib
+import random
+import string
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib.units import cm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.graphics.shapes import Rect
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.barcode.qr import QrCodeWidget
 import pdfplumber
 
 class Factura:
@@ -75,15 +86,17 @@ class Factura:
         self.color_boton_accion_hover = (80, 180, 80)
         self.accion_hover = False
 
-        # Datos de la empresa
+        # Datos de la empresa (EMISOR)
         self.empresa = {
             "nombre": "Panaderia Bambi",
-            "ruc": "1234567890",
+            "rfc": "BAM250205123",
+            "regimen_fiscal": "626 - Régimen Simplificado de Confianza",
             "direccion": "Benito Juarez #106, Oaxaca, Oax",
-            "telefono": "9513060854"
+            "telefono": "9513060854",
+            "codigo_postal": "68000"
         }
 
-        # Datos del cliente (inicialmente vacíos, se llenan con el formulario)
+        # Datos del cliente (RECEPTOR - inicialmente vacíos)
         self.cliente = {
             "nombre": "",
             "apellido_paterno": "",
@@ -95,7 +108,8 @@ class Factura:
             "estado": "",
             "codigo_postal": "",
             "telefono": "",
-            "correo": ""
+            "correo": "",
+            "uso_cfdi": "G03 - Gastos en general"
         }
 
         # Credenciales del remitente
@@ -117,6 +131,55 @@ class Factura:
         self.productos = []
         self.error_message = None
         self.error_timer = 0
+
+    def generar_folio_serie(self):
+        """Genera folio y serie basado en fecha, hora, seg, miliseg"""
+        now = datetime.datetime.now()
+        folio = now.strftime("%Y%m%d%H%M%S") + f"{now.microsecond // 1000:03d}"
+        serie = "A"
+        return serie, folio
+
+    def generar_uuid_cfdi(self):
+        """Genera UUID simulado para el CFDI"""
+        return str(uuid.uuid4()).upper()
+
+    def generar_sello_digital(self, cadena_original):
+        """Genera sello digital simulado"""
+        # Simular sello digital con hash SHA-256
+        sello = hashlib.sha256(cadena_original.encode()).hexdigest()
+        return sello.upper()
+
+    def generar_certificado_digital(self):
+        """Genera datos simulados del certificado digital"""
+        numero_serie = "".join(random.choices(string.digits, k=20))
+        return {
+            "numero_serie": numero_serie,
+            "fecha_inicio": "2024-01-01T00:00:00",
+            "fecha_fin": "2028-12-31T23:59:59"
+        }
+
+    def extraer_forma_pago_ticket(self, pdf_path):
+        """Extrae la forma de pago del ticket PDF"""
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    lines = text.split('\n')
+                    
+                    for line in lines:
+                        if 'PAGO:' in line.upper():
+                            # Extraer el tipo de pago después de "PAGO:"
+                            pago_part = line.upper().split('PAGO:')[1].strip()
+                            if 'EFECTIVO' in pago_part:
+                                return "01 - Efectivo"
+                            elif 'TARJETA' in pago_part:
+                                return "04 - Tarjeta de crédito"
+                            elif 'TRANSFERENCIA' in pago_part:
+                                return "03 - Transferencia electrónica"
+            
+            return "01 - Efectivo"  # Default
+        except:
+            return "01 - Efectivo"
 
     def setup_inputs(self):
         """Configura los campos de entrada del formulario"""
@@ -170,12 +233,13 @@ class Factura:
         except ValueError:
             return False, "Fecha inválida"
 
-    def validar_rfc(self, rfc, fecha_nacimiento):
+    def validar_rfc_completo(self, rfc, nombre, apellido_paterno, apellido_materno, fecha_nacimiento):
         """
-        Valida que el RFC tenga el formato correcto y que coincida con la fecha de nacimiento.
+        Valida RFC completo incluyendo iniciales de nombres y fecha
         
         Args:
             rfc (str): RFC a validar
+            nombre, apellido_paterno, apellido_materno (str): Nombres
             fecha_nacimiento (str): Fecha en formato DD/MM/AAAA
             
         Returns:
@@ -192,51 +256,89 @@ class Factura:
         fecha_valida, mensaje = self.validar_fecha_nacimiento(fecha_nacimiento)
         if not fecha_valida:
             return False, f"Primero valide la fecha de nacimiento: {mensaje}"
-            
-        # RFC Persona moral (12 caracteres)
-        if len(rfc) == 12:
-            # Primeros 3 caracteres deben ser letras
-            if not rfc[:3].isalpha():
-                return False, "Los primeros 3 caracteres deben ser letras"
-            # Siguientes 6 caracteres deben ser números (fecha)
-            if not rfc[3:9].isdigit():
-                return False, "Los caracteres 4-9 deben ser dígitos (fecha)"
-            # Últimos 3 caracteres deben ser alfanuméricos
-            if not all(c.isalnum() for c in rfc[9:]):
-                return False, "Los últimos 3 caracteres deben ser alfanuméricos"
-                
-            fecha_rfc = rfc[3:9]
-            
-        # RFC Persona física (13 caracteres)
-        elif len(rfc) == 13:
-            # Primeros 4 caracteres deben ser letras
-            if not rfc[:4].isalpha():
-                return False, "Los primeros 4 caracteres deben ser letras"
-            # Siguientes 6 caracteres deben ser números (fecha)
-            if not rfc[4:10].isdigit():
-                return False, "Los caracteres 5-10 deben ser dígitos (fecha)"
-            # Últimos 3 caracteres deben ser alfanuméricos
-            if not all(c.isalnum() for c in rfc[10:]):
-                return False, "Los últimos 3 caracteres deben ser alfanuméricos"
-                
-            fecha_rfc = rfc[4:10]
-            
-        # Validar que la fecha del RFC coincida con la fecha de nacimiento
+        
+        # Generar las iniciales esperadas
         try:
-            dia, mes, año = fecha_nacimiento.split('/')
-            año_corto = año[-2:]
-            fecha_esperada = año_corto + mes + dia
-            
-            if fecha_rfc != fecha_esperada:
-                return False, f"La fecha en el RFC ({fecha_rfc}) no coincide con la fecha de nacimiento ({fecha_esperada})"
+            # Para persona física (13 caracteres)
+            if len(rfc) == 13:
+                # Extraer consonante interna del apellido paterno
+                consonantes_paterno = [c for c in apellido_paterno.upper()[1:] if c in 'BCDFGHJKLMNPQRSTVWXYZ']
+                consonante_paterno = consonantes_paterno[0] if consonantes_paterno else 'X'
                 
-        except Exception:
-            return False, "Error al comparar fechas"
+                # Iniciales esperadas: APELLIDO_PATERNO[0] + VOCAL_INTERNA_PATERNO + APELLIDO_MATERNO[0] + NOMBRE[0]
+                vocal_interna_paterno = None
+                for c in apellido_paterno.upper()[1:]:
+                    if c in 'AEIOU':
+                        vocal_interna_paterno = c
+                        break
+                vocal_interna_paterno = vocal_interna_paterno or 'X'
+                
+                iniciales_esperadas = (apellido_paterno[0].upper() + 
+                                     vocal_interna_paterno + 
+                                     apellido_materno[0].upper() + 
+                                     nombre[0].upper())
+                
+                # Verificar iniciales
+                if rfc[:4] != iniciales_esperadas:
+                    return False, f"Las iniciales del RFC ({rfc[:4]}) no coinciden con las esperadas ({iniciales_esperadas})"
+                
+                # Verificar fecha (posiciones 4-9)
+                dia, mes, año = fecha_nacimiento.split('/')
+                fecha_esperada = año[-2:] + mes + dia
+                
+                if rfc[4:10] != fecha_esperada:
+                    return False, f"La fecha en el RFC ({rfc[4:10]}) no coincide con la fecha de nacimiento ({fecha_esperada})"
+                
+                # Verificar homoclave (posiciones 10-12)
+                if not rfc[10:13].isalnum():
+                    return False, "La homoclave debe ser alfanumérica"
+                    
+            else:  # Persona moral (12 caracteres)
+                return True, "RFC válido (persona moral)"
+                
+        except Exception as e:
+            return False, f"Error en validación: {str(e)}"
         
         return True, "RFC válido"
 
-    def leer_productos_de_ticket_pdf(self, pdf_path="ticket.pdf"):
+    def obtener_ultimo_ticket(self):
+        """
+        Obtiene la ruta del último ticket generado en la carpeta tickets
+        
+        Returns:
+            str: Ruta del último ticket o None si no encuentra ninguno
+        """
+        try:
+            # Buscar todos los archivos PDF en la carpeta tickets
+            patron = "tickets/ticket(*.pdf"
+            archivos_ticket = glob.glob(patron)
+            
+            if not archivos_ticket:
+                # Si no hay archivos en la carpeta tickets, buscar ticket.pdf en la raíz
+                if os.path.exists("ticket.pdf"):
+                    return "ticket.pdf"
+                return None
+            
+            # Ordenar por fecha de modificación (más reciente primero)
+            archivos_ticket.sort(key=os.path.getmtime, reverse=True)
+            
+            # Retornar el más reciente
+            return archivos_ticket[0]
+            
+        except Exception as e:
+            print(f"Error al buscar último ticket: {e}")
+            return None
+
+    def leer_productos_de_ticket_pdf(self, pdf_path=None):
         """Lee los productos de un archivo PDF de ticket"""
+        # Si no se especifica ruta, buscar el último ticket
+        if pdf_path is None:
+            pdf_path = self.obtener_ultimo_ticket()
+            if not pdf_path:
+                print("No se encontró ningún ticket para procesar")
+                return []
+        
+        print(f"Leyendo productos del archivo: {pdf_path}")
         productos = []
         
         try:
@@ -247,127 +349,47 @@ class Factura:
                     print("Texto completo del PDF:")
                     print(text)
                     
-                    # Intentar extraer tablas
-                    tables = page.extract_tables()
-                    print(f"Número de tablas encontradas: {len(tables)}")
+                    # Intentar extraer del texto plano
+                    lines = text.split('\n')
                     
-                    if not tables:
-                        # Si no encuentra tablas, intentar extraer del texto plano
-                        lines = text.split('\n')
-                        
-                        # Buscar líneas con formato de productos
-                        for line in lines:
-                            # Buscar líneas que tengan $
-                            if '$' in line and not ('SUBTOTAL' in line or 'TOTAL' in line or 'IVA' in line):
-                                # Intentar parsear el formato: "Producto X $Y.YY $Z.ZZ"
-                                parts = line.split()
-                                
-                                # Buscar los precios en la línea
-                                precio_unitario = None
-                                cantidad = None
-                                nombre_parts = []
-                                
-                                for i, part in enumerate(parts):
-                                    if part.startswith('$'):
-                                        # Es un precio
-                                        precio_str = part.replace('$', '').replace(',', '')
-                                        try:
-                                            precio = float(precio_str)
-                                            if precio_unitario is None:
-                                                precio_unitario = precio
-                                        except:
-                                            pass
-                                    elif part.isdigit():
-                                        # Es una cantidad
-                                        cantidad = int(part)
-                                    else:
-                                        # Es parte del nombre
-                                        nombre_parts.append(part)
-                                
-                                if precio_unitario and cantidad and nombre_parts:
-                                    nombre = ' '.join(nombre_parts)
-                                    productos.append({
-                                        "nombre": nombre,
-                                        "cantidad": cantidad,
-                                        "precio_unitario": precio_unitario
-                                    })
-                        
-                        if productos:
-                            return productos
-                    
-                    # Si encuentra tablas, procesarlas
-                    for table in tables:
-                        if table and table[0]:
-                            # Imprimir la tabla para debug
-                            print("Tabla encontrada:")
-                            for row in table:
-                                print(row)
-                            
-                            # Buscar la fila con encabezados
-                            header_row = None
-                            for i, row in enumerate(table):
-                                if row and isinstance(row, list):
-                                    # Buscar si algún elemento contiene "producto" o "cantidad"
-                                    row_str = str(row).lower()
-                                    if any(x in row_str for x in ["producto", "cantidad", "precio"]):
-                                        header_row = i
-                                        break
-                            
-                            if header_row is not None:
-                                headers = table[header_row]
-                                print(f"Encabezados encontrados: {headers}")
-                                
-                                # Encontrar índices de columnas de manera flexible
-                                idx_nombre = None
-                                idx_cantidad = None
-                                idx_precio = None
-                                
-                                for i, header in enumerate(headers):
-                                    if header and isinstance(header, str):
-                                        header_lower = header.lower()
-                                        if "producto" in header_lower or "nombre" in header_lower:
-                                            idx_nombre = i
-                                        elif "cantidad" in header_lower:
-                                            idx_cantidad = i
-                                        elif "precio unitario" in header_lower or "precio" in header_lower:
-                                            idx_precio = i
-                                
-                                print(f"Índices: nombre={idx_nombre}, cantidad={idx_cantidad}, precio={idx_precio}")
-                                
-                                # Extraer datos de productos
-                                if idx_nombre is not None and idx_cantidad is not None and idx_precio is not None:
-                                    for row in table[header_row + 1:]:
-                                        if row and len(row) > max(idx_nombre, idx_cantidad, idx_precio):
-                                            try:
-                                                nombre = str(row[idx_nombre]).strip()
-                                                cantidad_str = str(row[idx_cantidad]).strip()
-                                                precio_str = str(row[idx_precio]).strip()
-                                                
-                                                # Limpiar y convertir cantidad
-                                                cantidad = int(cantidad_str.replace(",", "").strip())
-                                                
-                                                # Limpiar y convertir precio
-                                                precio_str = precio_str.replace("$", "").replace(",", "").strip()
-                                                precio_unitario = float(precio_str)
-                                                
-                                                if nombre and cantidad > 0 and precio_unitario > 0:
-                                                    productos.append({
-                                                        "nombre": nombre,
-                                                        "cantidad": cantidad,
-                                                        "precio_unitario": precio_unitario
-                                                    })
-                                            except Exception as e:
-                                                print(f"Error procesando fila: {e}")
-                                                continue
-                            
-                            if productos:
-                                return productos
-                    
+                    # Buscar líneas con formato de productos
+                    for i, line in enumerate(lines):
+                        # Buscar líneas que tengan formato "cantidad x $precio = $total"
+                        if 'x $' in line and '= $' in line and not ('SUBTOTAL' in line or 'TOTAL' in line or 'IVA' in line):
+                            try:
+                                # Formato esperado: "2 x $15.00 = $30.00"
+                                parts = line.split(' x $')
+                                if len(parts) >= 2:
+                                    # Extraer cantidad
+                                    cantidad_part = parts[0].strip()
+                                    cantidad = int(cantidad_part) if cantidad_part.isdigit() else 1
+                                    
+                                    # Extraer precios
+                                    precio_part = parts[1]
+                                    if ' = $' in precio_part:
+                                        precio_unitario_str, precio_total_str = precio_part.split(' = $')
+                                        precio_unitario = float(precio_unitario_str.strip())
+                                        
+                                        # Buscar el nombre del producto en líneas anteriores
+                                        if i > 0:
+                                            nombre = lines[i - 1].strip()
+                                            if nombre and not any(x in nombre.upper() for x in ['PRODUCTOS', 'FECHA', 'PAGO', 'CAJERO']):
+                                                productos.append({
+                                                    "nombre": nombre,
+                                                    "cantidad": cantidad,
+                                                    "precio_unitario": precio_unitario,
+                                                    "clave_sat": "50181900",  # Clave SAT para productos de panadería
+                                                    "unidad_medida": "H87"   # Unidad SAT - Pieza
+                                                })
+                            except Exception as e:
+                                print(f"Error procesando línea '{line}': {e}")
+                                continue
+                
         except Exception as e:
             print(f"Error al leer PDF: {e}")
         
         return productos
-    
+
     def calcular_totales(self, productos):
         """Calcula los totales de la factura"""
         subtotal = sum(item["cantidad"] * item["precio_unitario"] for item in productos)
@@ -377,101 +399,323 @@ class Factura:
         return subtotal, iva, total
 
     def generar_factura_pdf(self, productos):
-        """Genera el archivo PDF de la factura"""
+        """Genera el archivo PDF de la factura con un formato mejorado"""
         # Crear documento PDF
-        pdf_path = "factura.pdf"
-        pdf = SimpleDocTemplate(pdf_path, pagesize=letter)
+        now = datetime.datetime.now()
+        pdf_filename = f"facturas/factura_{now.strftime('%Y%m%d_%H%M%S')}.pdf"
+        pdf = SimpleDocTemplate(
+            pdf_filename,
+            pagesize=letter,
+            topMargin=0.3*inch,
+            bottomMargin=0.3*inch,
+            leftMargin=0.5*inch,
+            rightMargin=0.5*inch
+        )
         elements = []
 
-        # Estilos
+        # Estilos mejorados
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle(
             name='Title',
-            fontSize=16,
-            alignment=1,
-            spaceAfter=12
+            parent=styles['Title'],
+            fontSize=22,
+            alignment=TA_CENTER,
+            spaceAfter=8,
+            textColor=colors.HexColor("#1E3A8A"),  # Azul oscuro elegante
+            fontName='Helvetica-Bold'
         )
-        normal_style = styles['Normal']
+        subtitle_style = ParagraphStyle(
+            name='Subtitle',
+            parent=styles['Normal'],
+            fontSize=12,
+            alignment=TA_CENTER,
+            spaceAfter=6,
+            textColor=colors.HexColor("#4B5563"),  # Gris oscuro
+            fontName='Helvetica'
+        )
+        header_style = ParagraphStyle(
+            name='Header',
+            parent=styles['Normal'],
+            fontSize=11,
+            alignment=TA_LEFT,
+            spaceAfter=5,
+            textColor=colors.black,
+            fontName='Helvetica-Bold',
+            leading=14
+        )
+        normal_style = ParagraphStyle(
+            name='Normal',
+            parent=styles['Normal'],
+            fontSize=10,
+            alignment=TA_LEFT,
+            spaceAfter=3,
+            textColor=colors.black,
+            fontName='Helvetica',
+            leading=12
+        )
+        small_style = ParagraphStyle(
+            name='Small',
+            parent=styles['Normal'],
+            fontSize=8,
+            alignment=TA_LEFT,
+            spaceAfter=3,
+            textColor=colors.HexColor("#6B7280"),  # Gris medio
+            fontName='Helvetica',
+            leading=10
+        )
+        thank_you_style = ParagraphStyle(
+            name='ThankYou',
+            parent=styles['Normal'],
+            fontSize=10,
+            alignment=TA_CENTER,
+            spaceAfter=5,
+            textColor=colors.HexColor("#1E3A8A"),
+            fontName='Helvetica-Oblique',
+            leading=12
+        )
 
-        # Título
-        elements.append(Paragraph("FACTURA", title_style))
-        elements.append(Spacer(1, 0.2*inch))
+        # Encabezado con fondo, logo y título
+        logo_path = "imagenes/log.png"
+        if os.path.exists(logo_path):
+            logo = Image(logo_path, width=1.2*inch, height=1.2*inch)
+        else:
+            # Placeholder para el logo (rectángulo con texto)
+            drawing = Drawing(1.2*inch, 1.2*inch)
+            drawing.add(Rect(0, 0, 1.2*inch, 1.2*inch, fillColor=colors.HexColor("#E5E7EB"), strokeColor=colors.black))
+            drawing.add(Paragraph("Logo Panadería Bambi", small_style, x=10, y=1.2*inch-20))
+            logo = drawing
 
-        # Formato del nombre completo
-        nombre_completo = f"{self.cliente['nombre']} {self.cliente['apellido_paterno']} {self.cliente['apellido_materno']}"
+        # Título y subtítulo
+        title = Paragraph("Panadería Bambi", title_style)
+        subtitle = Paragraph("Comprobante Fiscal Digital por Internet (CFDI)", subtitle_style)
+        header_data = [[logo, title]]
+        header_table = Table(header_data, colWidths=[1.5*inch, 5.5*inch])
+        header_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (0,0), (0,0), 'LEFT'),
+            ('ALIGN', (1,0), (1,0), 'CENTER'),
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#E0F2FE")),  # Fondo azul claro
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#1E3A8A")),
+            ('LEFTPADDING', (0,0), (-1,-1), 10),
+            ('RIGHTPADDING', (0,0), (-1,-1), 10),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ]))
+        elements.append(header_table)
+        elements.append(subtitle)
+        elements.append(Spacer(1, 0.1*inch))
+
+        # Línea divisoria elegante
+        drawing = Drawing(7.5*inch, 2)
+        drawing.add(Rect(0, 0, 7.5*inch, 2, fillColor=colors.HexColor("#1E3A8A")))
+        elements.append(drawing)
+        elements.append(Spacer(1, 0.05*inch))
+
+        # Datos fiscales principales
+        serie, folio = self.generar_folio_serie()
+        uuid_cfdi = self.generar_uuid_cfdi()
+        forma_pago = self.extraer_forma_pago_ticket(self.obtener_ultimo_ticket())
         
-        # Formato de la dirección completa
+        datos_fiscales = [
+            ["Serie:", serie, "Folio:", folio],
+            ["No. Factura:", f"{serie}-{folio}", "Versión CFDI:", "4.0"],
+            ["Fecha de Emisión:", now.strftime('%d/%m/%Y %H:%M:%S'), "Lugar de Expedición:", "Oaxaca, Oaxaca"],
+            ["", "", "", self.empresa['direccion']],
+            ["Forma de Pago:", forma_pago, "Método de Pago:", "PUE - Pago en Una Sola Exhibición"],
+            ["Moneda:", "MXN - Peso Mexicano", "Tipo de Comprobante:", "I - Ingreso"]
+        ]
+
+        tabla_fiscal = Table(datos_fiscales, colWidths=[2.5 * cm, 4.5 * cm])
+        tabla_fiscal.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LINEBELOW', (0, 0), (-1, -1), 0.25, colors.grey),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(tabla_fiscal)
+        elements.append(Spacer(1, 0.1*inch))
+
+        # Datos del emisor y receptor
+        nombre_completo = f"{self.cliente['nombre']} {self.cliente['apellido_paterno']} {self.cliente['apellido_materno']}"
         direccion_completa = f"{self.cliente['calle']}, {self.cliente['municipio']}, {self.cliente['estado']}, C.P. {self.cliente['codigo_postal']}"
 
-        # Datos empresa y cliente
         datos_empresa = f"""
+        <b>DATOS DEL EMISOR</b><br/>
         <b>{self.empresa['nombre']}</b><br/>
-        RUC: {self.empresa['ruc']}<br/>
+        RFC: {self.empresa['rfc']}<br/>
+        Régimen Fiscal: {self.empresa['regimen_fiscal']}<br/>
         Dirección: {self.empresa['direccion']}<br/>
         Teléfono: {self.empresa['telefono']}
         """
         datos_cliente = f"""
-        <b>Datos del Cliente</b><br/>
-        Nombre: {nombre_completo}<br/>
+        <b>DATOS DEL RECEPTOR</b><br/>
+        <b>{nombre_completo}</b><br/>
         RFC: {self.cliente['rfc']}<br/>
-        Fecha de Nacimiento: {self.cliente['fecha_nacimiento']}<br/>
+        Uso del CFDI: {self.cliente['uso_cfdi']}<br/>
         Dirección: {direccion_completa}<br/>
         Teléfono: {self.cliente['telefono']}<br/>
         Correo: {self.cliente['correo']}
         """
 
-        # Tabla para datos empresa y cliente
         datos_tabla = [[Paragraph(datos_empresa, normal_style), Paragraph(datos_cliente, normal_style)]]
-        tabla_datos = Table(datos_tabla, colWidths=[3*inch, 3*inch])
+        tabla_datos = Table(datos_tabla, colWidths=[3.5*inch, 3.5*inch])
         tabla_datos.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor("#D1D5DB")),
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#E5E7EB")),  # Fondo azul claro
+            ('LEFTPADDING', (0,0), (-1,-1), 15),
+            ('RIGHTPADDING', (0,0), (-1,-1), 15),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+            ('BOX', (0,0), (-1,-1), 1.5, colors.HexColor("#1E3A8A")),  # Borde externo azul
         ]))
         elements.append(tabla_datos)
-        elements.append(Spacer(1, 0.2*inch))
-
-        # Fecha y número factura
-        fecha = datetime.datetime.now().strftime('%d/%m/%Y')
-        elements.append(Paragraph(f"Fecha: {fecha}    No. Factura: 001-001-000000123", normal_style))
-        elements.append(Spacer(1, 0.2*inch))
+        elements.append(Spacer(1, 0.15*inch))
 
         # Tabla de productos
-        data = [['Descripción', 'Cantidad', 'P. Unitario', 'Total']]
+        data = [['Clave SAT', 'Descripción', 'Unidad', 'Cantidad', 'Valor Unitario', 'Importe']]
         for item in productos:
-            total_item = item["cantidad"] * item["precio_unitario"]
+            importe = item["cantidad"] * item["precio_unitario"]
             data.append([
+                item.get('clave_sat', '50181900'),
                 item['nombre'],
+                item.get('unidad_medida', 'H87'),
                 str(item['cantidad']),
                 f"${item['precio_unitario']:.2f}",
-                f"${total_item:.2f}"
+                f"${importe:.2f}"
             ])
 
-        tabla_productos = Table(data, colWidths=[3.5*inch, 1*inch, 1*inch, 1*inch])
+        tabla_productos = Table(data, colWidths=[0.9*inch, 2.6*inch, 0.8*inch, 0.8*inch, 1*inch, 1*inch])
         tabla_productos.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.grey),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),  # Encabezado azul oscuro
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('ALIGN', (1,1), (1,-1), 'LEFT'),  # Descripción alineada a la izquierda
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,0), 12),
-            ('BOTTOMPADDING', (0,0), (-1,0), 12),
-            ('BACKGROUND', (0,1), (-1,-1), colors.beige),
-            ('GRID', (0,0), (-1,-1), 1, colors.black)
+            ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,0), (-1,0), 11),
+            ('FONTSIZE', (0,1), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,0), 10),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,1), (-1,-1), 6),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#F9FAFB")),  # Filas en gris claro
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor("#D1D5DB")),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('BOX', (0,0), (-1,-1), 1.5, colors.HexColor("#1E3A8A")),  # Borde externo
         ]))
         elements.append(tabla_productos)
-        elements.append(Spacer(1, 0.2*inch))
+        elements.append(Spacer(1, 0.15*inch))
 
         # Totales
         subtotal, iva, total = self.calcular_totales(productos)
-        totales = f"""
-        Subtotal: ${subtotal:.2f}<br/>
-        IVA (16%): ${iva:.2f}<br/>
-        <b>TOTAL: ${total:.2f}</b>
+        totales_data = [
+            ["Subtotal:", f"${subtotal:.2f}"],
+            ["IVA (16%):", f"${iva:.2f}"],
+            ["Total:", f"${total:.2f}"]
+        ]
+        tabla_totales = Table(totales_data, colWidths=[5.5*inch, 1.5*inch])
+        tabla_totales.setStyle(TableStyle([
+            ('ALIGN', (0,0), (0,-1), 'RIGHT'),
+            ('ALIGN', (1,0), (-1,-1), 'RIGHT'),
+            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+            ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,0), (-1,-1), 12),
+            ('FONTSIZE', (0,2), (-1,2), 14),
+            ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
+            ('BACKGROUND', (0,2), (-1,2), colors.HexColor("#DCFCE7")),  # Total en verde claro
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor("#D1D5DB")),
+            ('BOX', (0,0), (-1,-1), 1.5, colors.HexColor("#1E3A8A")),
+            ('TOPPADDING', (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('LEFTPADDING', (0,0), (-1,-1), 15),
+            ('RIGHTPADDING', (0,0), (-1,-1), 15),
+        ]))
+        elements.append(tabla_totales)
+        elements.append(Spacer(1, 0.2*inch))
+
+        # Datos fiscales digitales
+        cadena_original = f"||1.1|{serie}|{folio}|{now.isoformat()}|{self.empresa['rfc']}|{self.cliente['rfc']}|{total:.2f}||"
+        sello_emisor = self.generar_sello_digital(cadena_original)
+        sello_sat = self.generar_sello_digital(sello_emisor + "SAT")
+        certificado = self.generar_certificado_digital()
+
+        elements.append(Paragraph("<b>DATOS FISCALES DIGITALES</b>", header_style))
+        fiscal_data = f"""
+        <b>UUID (Folio Fiscal):</b> {uuid_cfdi}<br/>
+        <b>No. Serie del Certificado Emisor:</b> {certificado['numero_serie']}<br/>
+        <b>No. Serie del Certificado SAT:</b> {"".join(random.choices(string.digits, k=20))}<br/>
+        <b>Fecha y Hora de Certificación:</b> {now.strftime('%Y-%m-%dT%H:%M:%S')}<br/>
+        <b>Sello Digital del Emisor:</b><br/>
+        {sello_emisor[:100]}...<br/>
+        <b>Sello Digital del SAT:</b><br/>
+        {sello_sat[:100]}...<br/>
+        <b>Cadena Original del Complemento de Certificación Digital del SAT:</b><br/>
+        {cadena_original}
         """
-        elements.append(Paragraph(totales, ParagraphStyle(name='Right', alignment=2)))
+        elements.append(Paragraph(fiscal_data, small_style))
+        elements.append(Spacer(1, 0.05*inch))
+
+        # Código QR con borde
+        qr_url = f"https://verificacfdi.facturaelectronica.sat.gob.mx/?id={uuid_cfdi}&re={self.empresa['rfc']}&rr={self.cliente['rfc']}&tt={total:.2f}"
+        qr = QrCodeWidget(qr_url)
+        qr.barWidth = 1.5*inch
+        qr.barHeight = 1.5*inch
+        qr_drawing = Drawing(1.5*inch, 1.5*inch)
+        qr_drawing.add(Rect(0, 0, 1.5*inch, 1.5*inch, fillColor=colors.white, strokeColor=colors.HexColor("#1E3A8A"), strokeWidth=2))
+        qr_drawing.add(qr)
+        qr_table = Table([[qr_drawing, Paragraph(f"<b>Código QR</b><br/>Escanee para verificar en el portal del SAT", small_style)]],
+                        colWidths=[1.8*inch, 5.2*inch])
+        qr_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (0,0), (0,0), 'CENTER'),
+            ('LEFTPADDING', (1,0), (1,0), 10),
+        ]))
+        elements.append(qr_table)
+        elements.append(Spacer(1, 0.1*inch))
+
+        # Mensaje de agradecimiento
+        thank_you_message = Paragraph(
+            f"¡Gracias por su compra, {self.cliente['nombre']}!<br/>Esperamos verlo pronto de nuevo en Panadería Bambi.",
+            thank_you_style
+        )
+        thank_you_table = Table([[thank_you_message]], colWidths=[7.5*inch])
+        thank_you_table.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#F0F9FF")),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#1E3A8A")),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+        ]))
+        elements.append(thank_you_table)
+        elements.append(Spacer(1, 0.1*inch))
+
+        # Pie de página
+        footer = Paragraph(
+            "Este documento es una representación impresa de un CFDI. Panadería Bambi - Todos los derechos reservados 2025.",
+            small_style
+        )
+        footer_table = Table([[footer]], colWidths=[7.5*inch])
+        footer_table.setStyle(TableStyle([
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#F3F4F6")),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#1E3A8A")),
+            ('TOPPADDING', (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ]))
+        elements.append(footer_table)
 
         # Generar PDF
         pdf.build(elements)
-        return pdf_path
+        return pdf_filename
 
     def enviar_correo(self, destinatario, archivo_adjunto):
         """Envía el correo con la factura adjunta"""
@@ -479,10 +723,19 @@ class Factura:
         mensaje = MIMEMultipart()
         mensaje['From'] = self.remitente
         mensaje['To'] = destinatario
-        mensaje['Subject'] = "Factura de Panaderia Bambi"
+        mensaje['Subject'] = "Factura Electrónica - Panaderia Bambi"
 
         # Cuerpo del correo
-        cuerpo = "Adjunto encontrará su factura."
+        cuerpo = """
+        Estimado cliente,
+        
+        Adjunto encontrará su Comprobante Fiscal Digital por Internet (CFDI).
+        
+        Esta factura electrónica tiene plena validez fiscal de acuerdo con las disposiciones del SAT.
+        
+        Saludos cordiales,
+        Panadería Bambi
+        """
         mensaje.attach(MIMEText(cuerpo, 'plain'))
 
         # Adjuntar el archivo PDF
@@ -502,7 +755,7 @@ class Factura:
                 server.starttls()
                 server.login(self.remitente, self.password)
                 server.sendmail(self.remitente, destinatario, mensaje.as_string())
-            print("Correo enviado exitosamente.")
+            print("Factura enviada exitosamente por correo.")
             return True
         except Exception as e:
             print(f"Error al enviar el correo: {e}")
@@ -520,7 +773,7 @@ class Factura:
         else:
             self.screen = pygame.display.set_mode((self.ancho, self.alto))
         
-        pygame.display.set_caption("Sistema de Facturación")
+        pygame.display.set_caption("Sistema de Facturación Fiscal")
 
     def draw_header(self):
         """Dibuja el encabezado de la interfaz"""
@@ -528,7 +781,7 @@ class Factura:
         pygame.draw.rect(self.screen, self.FONDO, (self.x, self.y, self.ancho, self.alto))
         
         # Título principal
-        titulo_surface = self.fuente_titulo.render("Sistema de Facturación", True, self.color_texto)
+        titulo_surface = self.fuente_titulo.render("Sistema de Facturación Fiscal", True, self.color_texto)
         titulo_rect = titulo_surface.get_rect(centerx=self.x + self.ancho // 2, 
                                               centery=self.y + int(self.alto * 0.06))
         self.screen.blit(titulo_surface, titulo_rect)
@@ -549,7 +802,7 @@ class Factura:
         # Botón de acción
         color_accion = self.color_boton_accion_hover if self.accion_hover else self.color_boton_accion
         pygame.draw.rect(self.screen, color_accion, self.boton_accion_rect, border_radius=8)
-        texto_accion = "Generar y Enviar"
+        texto_accion = "Generar CFDI"
         texto_surface = self.fuente_boton.render(texto_accion, True, self.WHITE)
         texto_rect = texto_surface.get_rect(center=self.boton_accion_rect.center)
         self.screen.blit(texto_surface, texto_rect)
@@ -560,8 +813,12 @@ class Factura:
             return
             
         # Título del formulario
-        subtitulo = self.fuente_label.render("Datos del Cliente", True, self.color_texto)
+        subtitulo = self.fuente_label.render("Datos del Receptor (Cliente)", True, self.color_texto)
         self.screen.blit(subtitulo, (self.x + 30, self.y + int(self.alto * 0.2)))
+        
+        # Información adicional
+        info_text = self.fuente_input.render("Complete todos los campos para generar el CFDI", True, self.GRAY)
+        self.screen.blit(info_text, (self.x + 30, self.y + int(self.alto * 0.22)))
         
         # Dibujar campos
         for i, field in enumerate(self.inputs):
@@ -596,18 +853,25 @@ class Factura:
                                                     field["rect"].y + 5))
                     
             elif i == 4 and field["value"]:  # RFC
+                nombre = self.inputs[0]["value"]
+                apellido_paterno = self.inputs[1]["value"]
+                apellido_materno = self.inputs[2]["value"]
                 fecha_nacimiento = self.inputs[3]["value"]
-                rfc_valido, mensaje = self.validar_rfc(field["value"], fecha_nacimiento)
-                validation_color = self.GREEN if rfc_valido else self.RED
-                validation_symbol = "✓" if rfc_valido else "✗"
-                validation_surface = self.fuente_input.render(validation_symbol, True, validation_color)
-                self.screen.blit(validation_surface, (field["rect"].x + field["rect"].width + 10, 
-                                                     field["rect"].y + 5))
                 
-                if not rfc_valido and i == self.active_field:
-                    error_surface = self.fuente_input.render(mensaje, True, self.RED)
-                    self.screen.blit(error_surface, (field["rect"].x + field["rect"].width + 30, 
-                                                    field["rect"].y + 5))
+                if nombre and apellido_paterno and apellido_materno and fecha_nacimiento:
+                    rfc_valido, mensaje = self.validar_rfc_completo(
+                        field["value"], nombre, apellido_paterno, apellido_materno, fecha_nacimiento
+                    )
+                    validation_color = self.GREEN if rfc_valido else self.RED
+                    validation_symbol = "✓" if rfc_valido else "✗"
+                    validation_surface = self.fuente_input.render(validation_symbol, True, validation_color)
+                    self.screen.blit(validation_surface, (field["rect"].x + field["rect"].width + 10, 
+                                                         field["rect"].y + 5))
+                    
+                    if not rfc_valido and i == self.active_field:
+                        error_surface = self.fuente_input.render(mensaje, True, self.RED)
+                        self.screen.blit(error_surface, (field["rect"].x + field["rect"].width + 30, 
+                                                        field["rect"].y + 5))
         
         # Error global
         if self.error_message and self.error_timer > 0:
@@ -619,17 +883,31 @@ class Factura:
             self.error_timer -= 1
 
     def draw_productos_form(self):
-        """Dibuja la pantalla de productos (visual solamente)"""
+        """Dibuja la pantalla de productos"""
         if self.opcion_seleccionada != "FACTURA":
             return
             
         # Título
-        subtitulo = self.fuente_label.render("Productos de la Factura", True, self.color_texto)
+        subtitulo = self.fuente_label.render("Productos del CFDI", True, self.color_texto)
         self.screen.blit(subtitulo, (self.x + 30, self.y + int(self.alto * 0.2)))
         
-        # Mensaje de información
-        info_text = self.fuente_input.render("Los productos serán cargados desde el archivo ticket.pdf", True, self.GRAY)
-        self.screen.blit(info_text, (self.x + 30, self.y + int(self.alto * 0.25)))
+        # Información del emisor
+        info_lines = [
+            f"Emisor: {self.empresa['nombre']}",
+            f"RFC Emisor: {self.empresa['rfc']}",
+            f"Régimen: {self.empresa['regimen_fiscal']}",
+            "",
+            "Los productos se cargarán automáticamente del último ticket generado.",
+            "Incluye claves SAT y datos fiscales requeridos."
+        ]
+        
+        y_offset = self.y + int(self.alto * 0.25)
+        for line in info_lines:
+            if line:
+                color = self.color_texto if not line.startswith("Los productos") else self.GRAY
+                text = self.fuente_input.render(line, True, color)
+                self.screen.blit(text, (self.x + 30, y_offset))
+            y_offset += 25
 
     def draw(self):
         """Dibuja toda la interfaz"""
@@ -662,17 +940,28 @@ class Factura:
             # Verificar si se hizo clic en el botón de acción
             if self.boton_accion_rect.collidepoint(mouse_pos):
                 # Validar todos los campos
+                nombre = self.inputs[0]["value"]
+                apellido_paterno = self.inputs[1]["value"]
+                apellido_materno = self.inputs[2]["value"]
                 fecha_nacimiento = self.inputs[3]["value"]
                 rfc = self.inputs[4]["value"]
+                
+                # Validar campos obligatorios
+                if not all([nombre, apellido_paterno, apellido_materno, fecha_nacimiento, rfc]):
+                    self.error_message = "Todos los campos son obligatorios"
+                    self.error_timer = 180
+                    return
                 
                 # Validar fecha y RFC
                 fecha_valida, mensaje_fecha = self.validar_fecha_nacimiento(fecha_nacimiento)
                 if not fecha_valida:
-                    self.error_message = f"Error en fecha de nacimiento: {mensaje_fecha}"
+                    self.error_message = f"Error en fecha: {mensaje_fecha}"
                     self.error_timer = 180
                     return
                     
-                rfc_valido, mensaje_rfc = self.validar_rfc(rfc, fecha_nacimiento)
+                rfc_valido, mensaje_rfc = self.validar_rfc_completo(
+                    rfc, nombre, apellido_paterno, apellido_materno, fecha_nacimiento
+                )
                 if not rfc_valido:
                     self.error_message = f"Error en RFC: {mensaje_rfc}"
                     self.error_timer = 180
@@ -694,16 +983,18 @@ class Factura:
                 # Cargar productos y generar factura
                 productos = self.leer_productos_de_ticket_pdf()
                 if not productos:
-                    self.error_message = "No se pudieron leer productos del ticket.pdf"
+                    self.error_message = "No se encontraron productos en el ticket"
                     self.error_timer = 180
                     return
                 
-                # Generar PDF y enviar
+                # Generar CFDI y enviar
                 pdf_path = self.generar_factura_pdf(productos)
-                if self.enviar_correo(self.cliente["correo"], pdf_path):
+                if pdf_path and self.enviar_correo(self.cliente["correo"], pdf_path):
+                    self.error_message = "¡CFDI generado y enviado exitosamente!"
+                    self.error_timer = 180
                     return True
                 else:
-                    self.error_message = "Error al enviar el correo"
+                    self.error_message = "Error al generar o enviar el CFDI"
                     self.error_timer = 180
                 return
             
@@ -749,11 +1040,14 @@ class Factura:
     async def main(self, productos=None):
         """Punto de entrada principal"""
         if productos is None:
-            productos = self.leer_productos_de_ticket_pdf()
-            if not productos:
-                print("No se pudieron leer productos del ticket.pdf")
-                # Si no hay productos, permitir continuar con campos vacíos
-                # return
+            # Buscar automáticamente el último ticket generado
+            ultimo_ticket = self.obtener_ultimo_ticket()
+            if ultimo_ticket:
+                print(f"Procesando último ticket: {ultimo_ticket}")
+                productos = self.leer_productos_de_ticket_pdf(ultimo_ticket)
+            else:
+                print("No se encontró ningún ticket para procesar")
+                productos = []
         
         # Marcar como embebido cuando se llama desde POS
         self.is_embedded = True

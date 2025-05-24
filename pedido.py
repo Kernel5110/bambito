@@ -57,6 +57,7 @@ class InputBox:
         self.txt_surface = self.font.render(text, True, (0, 0, 0))
         self.active = False
         self.numeric = numeric
+        
 
     def handle_event(self, event):
         """
@@ -209,6 +210,22 @@ class Pedido:
         # Evitar errores de referencia
         self.formulario_btn_agregar_producto = None
 
+        # Nuevo botón para editar fecha en vista NUEVO
+        self.boton_editar_fecha_rect = pygame.Rect(
+            self.x + self.ancho - 2 * (self.boton_width + self.boton_margin),
+            self.y + int(self.alto * 0.11),
+            self.boton_width, self.boton_height
+        )
+        self.color_boton_editar_fecha = (100, 150, 200)
+        self.color_boton_editar_fecha_hover = (80, 130, 180)
+        self.editar_fecha_hover = False
+        self.mostrando_formulario_editar = False  # Estado para formulario de edición
+        self.pedido_seleccionado = None  # Almacena ID del pedido seleccionado
+        self.formulario_editar_box = None  # Campo para edición de fecha
+        self.formulario_editar_btn_guardar = None
+        self.formulario_editar_btn_cancelar = None
+        self.formulario_editar_mensaje = ""
+
     def mostrar_alerta(self, mensaje, duracion=3000):
         """
         Muestra un mensaje temporal en la interfaz
@@ -235,7 +252,7 @@ class Pedido:
             query = """
                 SELECT 
                     p.ID_PedidoVenta AS id,
-                    c.Nombre AS cliente, 
+                    c.Nombre_Cliente AS cliente, 
                     p.Fecha_pedido AS fecha,
                     p.Fecha_entrega AS entrega,
                     p.Estado AS estado,
@@ -246,14 +263,14 @@ class Pedido:
             """
             params = ()
             if texto:
-                query += " AND LOWER(c.Nombre) LIKE %s"
+                query += " AND LOWER(c.Nombre_Cliente) LIKE %s"
                 params = (f"%{texto}%",)
         else:  # RECOGER
             # Pedidos listos para recoger
             query = """
                 SELECT 
                     p.ID_PedidoVenta AS id,
-                    c.Nombre AS cliente, 
+                    c.Nombre_Cliente AS cliente, 
                     p.Fecha_pedido AS fecha,
                     p.Fecha_entrega AS entrega,
                     p.Estado AS estado,
@@ -275,26 +292,20 @@ class Pedido:
 
     def dibujar_pedido(self, surface):
         """
-        Dibuja la interfaz completa de gestión de pedidos
-        
-        Args:
-            surface (pygame.Surface): Superficie donde dibujar
+        Dibuja la interfaz completa, incluyendo el botón de editar fecha.
         """
-        # Fondo principal
+        # Fondo y título (sin cambios)
         pygame.draw.rect(surface, self.FONDO, (self.x, self.y, self.ancho, self.alto))
-        
-        # Título
         titulo = self.fuente_titulo.render("Gestión de Pedidos", True, self.color_texto)
         surface.blit(titulo, (self.x + int(self.ancho * 0.02), self.y + int(self.alto * 0.03)))
 
-        # Campo de búsqueda
+        # Campo de búsqueda y botones de navegación (sin cambios)
         busq_x = self.x + int(self.ancho * 0.02)
         busq_y = self.y + int(self.alto * 0.11)
         busq_w = int(self.ancho * 0.35)
         busq_h = self.boton_height
         self.dibujar_campo_busqueda(surface, busq_x, busq_y, busq_w, busq_h)
 
-        # Botones de navegación
         for i, rect in enumerate(self.boton_rects):
             color = self.color_boton_activo if self.opcion_seleccionada == self.botones_opciones[i] else self.color_boton
             pygame.draw.rect(surface, color, rect, border_radius=8)
@@ -310,20 +321,30 @@ class Pedido:
         text_rect_agregar = texto_agregar_render.get_rect(center=self.boton_agregar_rect.center)
         surface.blit(texto_agregar_render, text_rect_agregar)
 
+        # Botón de editar fecha (solo en vista NUEVO)
+        if self.opcion_seleccionada == "NUEVO":
+            color_editar = self.color_boton_editar_fecha_hover if self.editar_fecha_hover else self.color_boton_editar_fecha
+            pygame.draw.rect(surface, color_editar, self.boton_editar_fecha_rect, border_radius=8)
+            texto_editar = self.fuente_boton.render("Editar Fecha", True, (255, 255, 255))
+            text_rect_editar = texto_editar.get_rect(center=self.boton_editar_fecha_rect.center)
+            surface.blit(texto_editar, text_rect_editar)
+
         # Tabla de pedidos
         tabla_x = self.x + int(self.ancho * 0.03)
         tabla_y = self.y + int(self.alto * 0.23)
         tabla_width = int(self.ancho * 0.94)
         tabla_row_height = int(self.alto * 0.07)
         self.dibujar_tabla(surface, tabla_x, tabla_y, tabla_width, tabla_row_height, self.datos_tabla)
-        
-        # Mensaje de alerta temporal
+
+        # Mensaje de alerta
         if self.mensaje_alerta and pygame.time.get_ticks() < self.tiempo_alerta:
             self.dibujar_alerta(surface)
-            
-        # Formulario si está activo
+
+        # Formularios
         if self.mostrando_formulario:
             self.dibujar_formulario(surface)
+        elif self.mostrando_formulario_editar:
+            self.dibujar_formulario_editar(surface)
 
     def dibujar_campo_busqueda(self, surface, x, y, w, h):
         """
@@ -361,7 +382,6 @@ class Pedido:
         font_alerta = pygame.font.SysFont("Open Sans", int(self.alto * 0.03))
         texto = font_alerta.render(self.mensaje_alerta, True, (100, 80, 0))
         surface.blit(texto, (alerta_x + (alerta_w - texto.get_width()) // 2, alerta_y + (alerta_h - texto.get_height()) // 2))
-
 
     def dibujar_tabla(self, surface, x, y, width, row_height, datos):
         """
@@ -544,7 +564,7 @@ class Pedido:
 
         # Ventana del formulario - tamaño ajustado
         form_w = int(self.ancho * 0.5)
-        form_h = int(self.alto * 0.7)  # Más alto para acomodar todos los campos
+        form_h = int(self.alto * 0.8)  # Más alto para acomodar todos los campos
         form_x = self.x + (self.ancho - form_w) // 2
         form_y = self.y + (self.alto - form_h) // 2
         
@@ -607,145 +627,184 @@ class Pedido:
             msg_x = form_x + (form_w - msg.get_width()) // 2
             surface.blit(msg, (msg_x, form_y + form_h - 40))
 
-    def guardar_pedido(self):
+    def dibujar_formulario_editar(self, surface):
         """
-        Guarda un nuevo pedido en la base de datos
+        Dibuja el formulario para editar la fecha de entrega.
+        """
+        overlay = pygame.Surface((self.ancho, self.alto), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        surface.blit(overlay, (self.x, self.y))
+
+        form_w = int(self.ancho * 0.4)
+        form_h = int(self.alto * 0.25)
+        form_x = self.x + (self.ancho - form_w) // 2
+        form_y = self.y + (self.alto - form_h) // 2
+
+        pygame.draw.rect(surface, (255, 255, 255), (form_x, form_y, form_w, form_h), border_radius=12)
+        pygame.draw.rect(surface, (100, 100, 200), (form_x, form_y, form_w, form_h), 3, border_radius=12)
+
+        font_title = pygame.font.SysFont("Open Sans", int(self.alto * 0.05), bold=True)
+        titulo = f"Editar Fecha Pedido #{self.pedido_seleccionado}"
+        text_title = font_title.render(titulo, True, (0, 0, 0))
+        title_x = form_x + (form_w - text_title.get_width()) // 2
+        surface.blit(text_title, (title_x, form_y + 20))
+
+        font = pygame.font.SysFont("Open Sans", int(self.alto * 0.035))
+        label = font.render("Nueva Fecha (YYYY-MM-DD):", True, (0, 0, 0))
+        surface.blit(label, (form_x + 40, form_y + 70))
+        self.formulario_editar_box.draw(surface)
+
+        pygame.draw.rect(surface, (100, 200, 100), self.formulario_editar_btn_guardar, border_radius=8)
+        text_guardar = font.render("Guardar", True, (255, 255, 255))
+        guardar_x = self.formulario_editar_btn_guardar.x + (self.formulario_editar_btn_guardar.width - text_guardar.get_width()) // 2
+        guardar_y = self.formulario_editar_btn_guardar.y + (self.formulario_editar_btn_guardar.height - text_guardar.get_height()) // 2
+        surface.blit(text_guardar, (guardar_x, guardar_y))
+
+        pygame.draw.rect(surface, (200, 100, 100), self.formulario_editar_btn_cancelar, border_radius=8)
+        text_cancelar = font.render("Cancelar", True, (255, 255, 255))
+        cancelar_x = self.formulario_editar_btn_cancelar.x + (self.formulario_editar_btn_cancelar.width - text_cancelar.get_width()) // 2
+        cancelar_y = self.formulario_editar_btn_cancelar.y + (self.formulario_editar_btn_cancelar.height - text_cancelar.get_height()) // 2
+        surface.blit(text_cancelar, (cancelar_x, cancelar_y))
+
+        if self.formulario_editar_mensaje:
+            font_msg = pygame.font.SysFont("Open Sans", int(self.alto * 0.03))
+            color = (200, 0, 0) if "Error" in self.formulario_editar_mensaje else (0, 150, 0)
+            msg = font_msg.render(self.formulario_editar_mensaje, True, color)
+            msg_x = form_x + (form_w - msg.get_width()) // 2
+            surface.blit(msg, (msg_x, form_y + form_h - 40))
+
+    def validar_fecha(self, fecha_str):
+        """
+        Valida que la fecha sea en formato YYYY-MM-DD y posterior a la fecha actual.
         
-        Proceso:
-        1. Valida todos los campos del formulario
-        2. Busca el cliente por correo electrónico
-        3. Busca o crea el producto especificado
-        4. Calcula el total del pedido
-        5. Inserta el pedido en la base de datos
-        6. Inserta el detalle del pedido
+        Args:
+            fecha_str (str): Fecha en formato string
         
         Returns:
-            bool: True si el pedido se guardó exitosamente
+            tuple: (bool, str) - (Éxito, Mensaje de error si aplica)
         """
-        # Verificar datos
+        try:
+            fecha = datetime.strptime(fecha_str, "%Y-%m-%d")
+            fecha_actual = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            if fecha <= fecha_actual:
+                return False, "Error: La fecha de entrega debe ser posterior a hoy"
+            return True, ""
+        except ValueError:
+            return False, "Error: Formato de fecha inválido (use YYYY-MM-DD)"
+
+    def guardar_pedido(self):
+        """
+        Guarda un nuevo pedido con validación de fecha.
+        """
         correo_cliente = self.formulario_boxes[0].get_value()
         fecha_entrega = self.formulario_boxes[1].get_value()
         nombre_producto = self.formulario_boxes[2].get_value()
         cantidad_str = self.formulario_boxes[3].get_value()
         precio_str = self.formulario_boxes[4].get_value()
         observaciones = self.formulario_boxes[5].get_value()
-        
-        # Validaciones básicas
-        if not correo_cliente or not fecha_entrega:
-            self.formulario_mensaje = "Error: Correo y fecha entrega son obligatorios"
+
+        # Validar fecha de entrega
+        fecha_valida, mensaje_fecha = self.validar_fecha(fecha_entrega)
+        if not fecha_valida:
+            self.formulario_mensaje = mensaje_fecha
             return False
-            
-        if not nombre_producto:
-            self.formulario_mensaje = "Error: Debe ingresar un nombre de producto"
+
+        # Validaciones existentes
+        if not correo_cliente or not nombre_producto:
+            self.formulario_mensaje = "Error: Correo y nombre de producto son obligatorios"
             return False
-            
+
         try:
-            # Convertir cantidad y precio a números
             cantidad = int(cantidad_str) if cantidad_str else 1
             precio = float(precio_str) if precio_str else 0
-            
+
             if cantidad <= 0:
                 self.formulario_mensaje = "Error: La cantidad debe ser mayor a cero"
                 return False
-                
             if precio <= 0:
                 self.formulario_mensaje = "Error: El precio debe ser mayor a cero"
                 return False
-                
-            # Fecha de registro automática (datetime actual)
-            fecha_registro = datetime.now()
-            
-            # Buscar el ID del cliente por su correo
+
+            # Código existente para guardar cliente, producto y pedido
             conexion = Conexion()
             query_cliente = "SELECT Id_Cliente FROM Cliente WHERE Correo = %s"
             resultado_cliente = conexion.consultar(query_cliente, (correo_cliente,))
-            
-            # Verificar si se encontró el cliente
             if not resultado_cliente:
                 self.formulario_mensaje = "Error: No existe un cliente con ese correo"
                 return False
-                
             cliente_id = resultado_cliente[0]['Id_Cliente']
-            
-            # Buscar el ID del producto si existe o crear uno nuevo
+
             query_producto = "SELECT ID_CatProducto FROM CatProducto WHERE Nombre_prod = %s"
             resultado_producto = conexion.consultar(query_producto, (nombre_producto,))
-            
             if resultado_producto:
-                # Si el producto existe, usar su ID
                 producto_id = resultado_producto[0]['ID_CatProducto']
             else:
-                # Si el producto no existe, crear uno nuevo
                 query_insertar_producto = """
-                    INSERT INTO CatProducto 
-                    (Nombre_prod, Precio, Stock, Estado) 
+                    INSERT INTO CatProducto (Nombre_prod, Precio, Stock, Estado)
                     VALUES (%s, %s, %s, %s)
                 """
-                conexion.update(query_insertar_producto, (
-                    nombre_producto, precio, 10, "Disponible"  # Valores por defecto
-                ))
-                
-                # Obtener el ID del producto insertado
+                conexion.update(query_insertar_producto, (nombre_producto, precio, 10, "Disponible"))
                 id_producto_query = "SELECT LAST_INSERT_ID() AS id_producto"
                 resultado = conexion.consultar(id_producto_query)
                 producto_id = resultado[0]['id_producto']
-            
-            # Calcular subtotal
+
             subtotal = cantidad * precio
-            
-            # Formatear fechas para la base de datos
-            fecha_registro_str = fecha_registro.strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Insertar el pedido con la fecha de registro
+            fecha_registro = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
             query_pedido = """
                 INSERT INTO pedidoventa 
                 (Fecha_pedido, Fecha_entrega, Total, Estado, Observaciones, FK_ID_Cliente)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """
             conexion.update(query_pedido, (
-                fecha_registro_str, fecha_entrega, subtotal, "Pendiente", 
+                fecha_registro, fecha_entrega, subtotal, "Pendiente", 
                 observaciones, cliente_id
             ))
-            
-            # Obtener el ID del pedido insertado
+
             id_pedido_query = "SELECT LAST_INSERT_ID() AS id_pedido"
             resultado = conexion.consultar(id_pedido_query)
             id_pedido = resultado[0]['id_pedido']
-            
-            # Insertar el detalle del pedido
+
             query_detalle = """
                 INSERT INTO detallepedidoventa 
                 (Cantidad, PrecioUnitario, Subtotal, FK_ID_PedidoVenta, FK_ID_CatProducto)
                 VALUES (%s, %s, %s, %s, %s)
             """
-            conexion.update(query_detalle, (
-                cantidad, precio, subtotal, id_pedido, producto_id
-            ))
-            
-            # Mostrar info sobre las fechas en la alerta
-            self.mostrar_alerta(f"Pedido guardado. Registro: {fecha_registro.strftime('%d/%m/%Y %H:%M')} - Entrega: {fecha_entrega}")
+            conexion.update(query_detalle, (cantidad, precio, subtotal, id_pedido, producto_id))
+
+            self.mostrar_alerta(f"Pedido guardado. Registro: {datetime.now().strftime('%d/%m/%Y %H:%M')} - Entrega: {fecha_entrega}")
             self.mostrando_formulario = False
             self.cargar_datos_tabla()
             return True
-            
         except Exception as e:
             print(f"Error al guardar pedido: {e}")
             self.formulario_mensaje = f"Error: No se pudo guardar el pedido"
             return False
-
+        
     def handle_event(self, event):
-        # Si está mostrando formulario
+        """
+        Maneja eventos, incluyendo clics en el botón de editar fecha y el formulario de edición.
+        """
+        # Manejo del formulario de edición de fecha
+        if self.mostrando_formulario_editar:
+            self.formulario_editar_box.handle_event(event)
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.formulario_editar_btn_guardar.collidepoint(event.pos):
+                    self.guardar_nueva_fecha()
+                    return
+                elif self.formulario_editar_btn_cancelar.collidepoint(event.pos):
+                    self.mostrando_formulario_editar = False
+                    return
+            return
+
+        # Manejo del formulario de creación (sin cambios)
         if self.mostrando_formulario:
             for box in self.formulario_boxes:
                 box.handle_event(event)
-                
             if event.type == pygame.MOUSEBUTTONDOWN:
-                # Botón guardar
                 if self.formulario_btn_guardar.collidepoint(event.pos):
                     self.guardar_pedido()
                     return
-                
-                # Botón cancelar
                 elif self.formulario_btn_cancelar.collidepoint(event.pos):
                     self.mostrando_formulario = False
                     return
@@ -755,31 +814,39 @@ class Pedido:
         if event.type == pygame.MOUSEMOTION:
             mouse_pos = pygame.mouse.get_pos()
             self.agregar_hover = self.boton_agregar_rect.collidepoint(mouse_pos)
-            
+            self.editar_fecha_hover = self.boton_editar_fecha_rect.collidepoint(mouse_pos) if self.opcion_seleccionada == "NUEVO" else False
+
         elif event.type == pygame.MOUSEBUTTONDOWN:
             mouse_pos = pygame.mouse.get_pos()
-            
-            # Verificar si se hizo clic en los botones de opción
+
+            # Botones de navegación
             for i, rect in enumerate(self.boton_rects):
                 if rect.collidepoint(mouse_pos):
                     self.opcion_seleccionada = self.botones_opciones[i]
+                    self.pedido_seleccionado = None  # Resetear selección
                     self.cargar_datos_tabla()
                     return
-            
-            # Verificar si se hizo clic en el botón agregar/entregar
+
+            # Botón crear/entregar
             if self.boton_agregar_rect.collidepoint(mouse_pos):
                 if self.opcion_seleccionada == "NUEVO":
-                    # Mostrar formulario para crear pedido
                     self.mostrar_formulario()
                 else:  # RECOGER
-                    # Entregar pedido seleccionado
-                    if hasattr(self, 'pedido_seleccionado') and self.pedido_seleccionado:
+                    if self.pedido_seleccionado:
                         self.entregar_pedido(self.pedido_seleccionado)
                     else:
                         self.mostrar_alerta("No hay pedido seleccionado")
                 return
-                
-            # Verificar clic en el campo de búsqueda
+
+            # Botón editar fecha
+            if self.opcion_seleccionada == "NUEVO" and self.boton_editar_fecha_rect.collidepoint(mouse_pos):
+                if self.pedido_seleccionado:
+                    self.mostrar_formulario_editar_fecha()
+                else:
+                    self.mostrar_alerta("Seleccione un pedido primero")
+                return
+
+            # Campo de búsqueda
             busq_x = self.x + int(self.ancho * 0.02)
             busq_y = self.y + int(self.alto * 0.11)
             busq_w = int(self.ancho * 0.35)
@@ -789,23 +856,20 @@ class Pedido:
                 self.busqueda_activa = True
             else:
                 self.busqueda_activa = False
-                
-            # Verificar clic en la tabla para seleccionar un pedido
+
+            # Selección en la tabla
             tabla_x = self.x + int(self.ancho * 0.03)
-            tabla_y = self.y + int(self.alto * 0.23) + int(self.alto * 0.07)  # Saltamos el encabezado
+            tabla_y = self.y + int(self.alto * 0.23) + int(self.alto * 0.07)
             tabla_width = int(self.ancho * 0.94)
             row_height = int(self.alto * 0.07)
-            
             for i, fila in enumerate(self.datos_tabla):
                 row_rect = pygame.Rect(tabla_x, tabla_y + i * row_height, tabla_width, row_height)
                 if row_rect.collidepoint(mouse_pos):
-                    # Seleccionar este pedido
                     self.pedido_seleccionado = self.datos_tabla[i]["id"]
                     if self.opcion_seleccionada == "RECOGER":
                         self.entregar_pedido(self.pedido_seleccionado)
                     break
-        
-        # Manejo de teclado para búsqueda
+
         elif event.type == pygame.KEYDOWN and self.busqueda_activa:
             if event.key == pygame.K_BACKSPACE:
                 self.busqueda_texto = self.busqueda_texto[:-1]
@@ -831,4 +895,67 @@ class Pedido:
         except Exception as e:
             print(f"Error al entregar pedido: {e}")
             self.mostrar_alerta(f"Error al entregar pedido #{id_pedido}")
+            return False
+        
+    def mostrar_formulario_editar_fecha(self):
+        """
+        Configura el formulario para editar la fecha de entrega de un pedido.
+        """
+        if not self.pedido_seleccionado:
+            self.mostrar_alerta("Seleccione un pedido primero")
+            return
+
+        self.mostrando_formulario_editar = True
+        font = pygame.font.SysFont("Open Sans", int(self.alto * 0.035))
+
+        # Obtener la fecha actual del pedido
+        conexion = Conexion()
+        query = "SELECT Fecha_entrega FROM pedidoventa WHERE ID_PedidoVenta = %s"
+        resultado = conexion.consultar(query, (self.pedido_seleccionado,))
+        fecha_actual = resultado[0]['Fecha_entrega'] if resultado else datetime.now().strftime("%Y-%m-%d")
+
+        # Configurar campo de entrada
+        x = self.x + int(self.ancho * 0.35)
+        y = self.y + int(self.alto * 0.35)
+        input_width = int(self.ancho * 0.28)
+        input_height = int(self.alto * 0.05)
+        self.formulario_editar_box = InputBox(x, y, input_width, input_height, text=str(fecha_actual), font=font)
+
+        # Botones de guardar y cancelar
+        button_y = y + int(self.alto * 0.07)
+        button_width = int(self.ancho * 0.12)
+        button_height = int(self.alto * 0.06)
+        self.formulario_editar_btn_guardar = pygame.Rect(
+            x + int(self.ancho * 0.05), button_y, button_width, button_height
+        )
+        self.formulario_editar_btn_cancelar = pygame.Rect(
+            x + int(self.ancho * 0.22), button_y, button_width, button_height
+        )
+        self.formulario_editar_mensaje = ""
+
+    def guardar_nueva_fecha(self):
+        """
+        Guarda la nueva fecha de entrega en la base de datos.
+        """
+        if not self.pedido_seleccionado:
+            self.formulario_editar_mensaje = "Error: No hay pedido seleccionado"
+            return False
+
+        nueva_fecha = self.formulario_editar_box.get_value()
+        fecha_valida, mensaje_fecha = self.validar_fecha(nueva_fecha)
+        if not fecha_valida:
+            self.formulario_editar_mensaje = mensaje_fecha
+            return False
+
+        try:
+            conexion = Conexion()
+            query = "UPDATE pedidoventa SET Fecha_entrega = %s WHERE ID_PedidoVenta = %s"
+            conexion.update(query, (nueva_fecha, self.pedido_seleccionado))
+            self.mostrar_alerta(f"Fecha de entrega actualizada para pedido #{self.pedido_seleccionado}")
+            self.mostrando_formulario_editar = False
+            self.cargar_datos_tabla()
+            return True
+        except Exception as e:
+            print(f"Error al actualizar fecha: {e}")
+            self.formulario_editar_mensaje = "Error: No se pudo actualizar la fecha"
             return False
