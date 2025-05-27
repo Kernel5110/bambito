@@ -217,22 +217,22 @@ class PuntoVenta:
         self.productos = self.cargar_productos_desde_db()
         self.imagenes_productos = []
         for prod in self.productos:
-            imagen_url = prod["imagen"]
+            local_image_path = prod["imagen"]  # This now holds the relative path, e.g., "imagenes/panes/baguette.png"
             try:
-                response = requests.get(imagen_url)
-                if response.status_code == 200:
-                    imagen_data = BytesIO(response.content)
-                    imagen = pygame.image.load(imagen_data).convert_alpha()
+                if local_image_path and os.path.exists(local_image_path): # Check if path is not empty and file exists
+                    imagen = pygame.image.load(local_image_path).convert_alpha()
                     imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
                 else:
-                    # Imagen por defecto si no se puede descargar
+                    if local_image_path: # Path was provided but file not found
+                        print(f"Advertencia: Imagen no encontrada en la ruta local: {local_image_path}")
+                    # Imagen por defecto si la ruta está vacía o el archivo no existe
                     imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-                    imagen.fill((200, 200, 200))
+                    imagen.fill((200, 200, 200)) # Placeholder color
             except Exception as e:
-                print(f"Error al descargar la imagen: {e}")
-                # Imagen por defecto en caso de error
+                print(f"Error al cargar la imagen local '{local_image_path}': {e}")
+                # Imagen por defecto en caso de error de carga
                 imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-                imagen.fill((200, 200, 200))
+                imagen.fill((200, 200, 200)) # Placeholder color
             self.imagenes_productos.append(imagen)
 
         # Inicializar variables del sistema
@@ -284,7 +284,8 @@ class PuntoVenta:
             # Asignar imagen por defecto si no existe
             for prod in productos:
                 if not prod["imagen"]:
-                    prod["imagen"] = "https://github.com/Kernel5110/bambito/blob/main/imagenes/log.png"  # URL de imagen por defecto
+                    # Image path will remain empty if not provided by the database
+                    pass # Or some other handling if a default local image is preferred
             return productos
         except Exception as e:
             print(f"Error en PuntoVenta.cargar_productos_desde_db: {e}")
@@ -1366,16 +1367,25 @@ class PuntoVenta:
             self.mostrar_alerta(f"Producto '{nombre}' agregado.")
         
         # Recargar productos e imágenes
-        self.productos = self.cargar_productos_desde_db()
+        self.productos = self.cargar_productos_desde_db() # This already reflects DB changes
         self.imagenes_productos = []
         for prod in self.productos:
-            ruta = prod["imagen"]
-            if ruta and os.path.exists(ruta):
-                img = pygame.image.load(ruta).convert_alpha()
-                img = pygame.transform.smoothscale(img, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-            else:
+            local_image_path = prod["imagen"] # This holds the relative path
+            try:
+                if local_image_path and os.path.exists(local_image_path):
+                    img = pygame.image.load(local_image_path).convert_alpha()
+                    img = pygame.transform.smoothscale(img, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                else:
+                    if local_image_path: # Path was provided but file not found
+                        print(f"Advertencia al recargar: Imagen no encontrada en la ruta local: {local_image_path}")
+                    # Imagen por defecto si la ruta está vacía o el archivo no existe
+                    img = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                    img.fill((200, 200, 200)) # Placeholder color
+            except Exception as e:
+                print(f"Error al recargar la imagen local '{local_image_path}': {e}")
+                # Imagen por defecto en caso de error de carga
                 img = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-                img.fill((200, 200, 200))
+                img.fill((200, 200, 200)) # Placeholder color
             self.imagenes_productos.append(img)
         
         # Cerrar formulario
