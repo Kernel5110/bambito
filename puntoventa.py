@@ -213,27 +213,7 @@ class PuntoVenta:
         self.fuente_ticket = pygame.font.SysFont("Open Sans", fuente_relativa(28))
         self.fuente_busqueda = pygame.font.SysFont("Open Sans", fuente_relativa(28))
 
-        # Cargar productos e imágenes
-        self.productos = self.cargar_productos_desde_db()
-        self.imagenes_productos = []
-        for prod in self.productos:
-            imagen_url = prod["imagen"]
-            try:
-                response = requests.get(imagen_url)
-                if response.status_code == 200:
-                    imagen_data = BytesIO(response.content)
-                    imagen = pygame.image.load(imagen_data).convert_alpha()
-                    imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-                else:
-                    # Imagen por defecto si no se puede descargar
-                    imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-                    imagen.fill((200, 200, 200))
-            except Exception as e:
-                print(f"Error al descargar la imagen: {e}")
-                # Imagen por defecto en caso de error
-                imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-                imagen.fill((200, 200, 200))
-            self.imagenes_productos.append(imagen)
+        self.cargar_imagenes()
 
         # Inicializar variables del sistema
         self.ticket = Ticket(nombre_panaderia="Panadería Bambi")
@@ -267,6 +247,27 @@ class PuntoVenta:
         self.tiempo_alerta = 0  # Para rastrear cuando se mostró la alerta
         self.duracion_alerta = 5000  # 5000 milisegundos = 5 segundos
 
+    def cargar_imagenes(self):
+        # Cargar productos e imágenes
+        self.productos = self.cargar_productos_desde_db()
+        self.imagenes_productos = []
+        for prod in self.productos:
+            ruta_imagen = prod["imagen"]
+            try:
+                if os.path.exists(ruta_imagen):
+                    imagen = pygame.image.load(ruta_imagen).convert_alpha()
+                    imagen = pygame.transform.smoothscale(imagen, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                else:
+                    # Imagen por defecto si no se encuentra la imagen
+                    imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                    imagen.fill((200, 200, 200))
+            except Exception as e:
+                print(f"Error al cargar la imagen: {e}")
+                # Imagen por defecto en caso de error
+                imagen = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
+                imagen.fill((200, 200, 200))
+            self.imagenes_productos.append(imagen)
+
     def cargar_productos_desde_db(self):
         """
         Carga todos los productos disponibles desde la base de datos
@@ -284,7 +285,10 @@ class PuntoVenta:
             # Asignar imagen por defecto si no existe
             for prod in productos:
                 if not prod["imagen"]:
-                    prod["imagen"] = "https://github.com/Kernel5110/bambito/blob/main/imagenes/log.png"  # URL de imagen por defecto
+                    prod["imagen"] = "imagenes/log.png"  # Ruta de imagen por defecto
+                else:
+                    # Asumir que prod["imagen"] ya contiene la ruta física correcta
+                    pass
             return productos
         except Exception as e:
             print(f"Error en PuntoVenta.cargar_productos_desde_db: {e}")
@@ -1043,6 +1047,7 @@ class PuntoVenta:
                         enviado = self.enviar_ticket_por_correo(correo)
                         if enviado:
                             self.correo_mensaje = "¡Ticket enviado!"
+                            self.ticket.limpiar
                             self.mostrando_modal_correo = False
                             self.mostrar_alerta("Ticket enviado correctamente.")
                         else:
@@ -1142,6 +1147,7 @@ class PuntoVenta:
                 # Botón agregar producto
                 elif hasattr(self, "boton_agregar_producto_rect") and self.boton_agregar_producto_rect and self.boton_agregar_producto_rect.collidepoint(mouse_x, mouse_y):
                     self.mostrar_formulario_agregar_producto()
+                    self.cargar_imagenes()
                 # Botón enviar por correo
                 elif hasattr(self, "boton_enviar_rect") and self.boton_enviar_rect and self.boton_enviar_rect.collidepoint(mouse_x, mouse_y):
                     self.mostrando_modal_correo = True
@@ -1366,17 +1372,7 @@ class PuntoVenta:
             self.mostrar_alerta(f"Producto '{nombre}' agregado.")
         
         # Recargar productos e imágenes
-        self.productos = self.cargar_productos_desde_db()
-        self.imagenes_productos = []
-        for prod in self.productos:
-            ruta = prod["imagen"]
-            if ruta and os.path.exists(ruta):
-                img = pygame.image.load(ruta).convert_alpha()
-                img = pygame.transform.smoothscale(img, (int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-            else:
-                img = pygame.Surface((int(80 * self.ancho / 1585), int(80 * self.alto / 870)))
-                img.fill((200, 200, 200))
-            self.imagenes_productos.append(img)
+        self.cargar_imagenes()
         
         # Cerrar formulario
         self.mostrando_formulario = False
