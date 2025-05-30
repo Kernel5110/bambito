@@ -801,10 +801,12 @@ class ajustes:
                 return
             
             # 4. Validar RFC (12-13 caracteres alfanuméricos)
-            if len(rfc) not in (12, 13) or not rfc.isalnum():
-                self.formulario_cliente_mensaje = "El RFC debe tener 12 o 13 caracteres alfanuméricos."
-                return
-            
+            resultado_validacion = self.validar_rfc_completo(rfc, nombre, ap_paterno, ap_materno)
+            if resultado_validacion[0]:
+                self.formulario_cliente_mensaje = "RFC válido"
+            else:
+                self.formulario_cliente_mensaje = resultado_validacion[1]
+
             # 5. Validar código postal (solo números, 5 dígitos)
             try:
                 cp_num = int(cp)
@@ -850,6 +852,61 @@ class ajustes:
                     conexion.cerrar()
             except:
                 pass
+
+    def validar_rfc(self, rfc, nombre, apellido_paterno, apellido_materno):
+        """
+        Valida RFC completo incluyendo iniciales de nombres
+        
+        Args:
+            rfc (str): RFC a validar
+            nombre, apellido_paterno, apellido_materno (str): Nombres
+        
+        Returns:
+            tuple: (bool, str) - Indica si es válido y mensaje de error
+        """
+        # Verificar longitud
+        if len(rfc) not in [12, 13]:
+            return False, "El RFC debe tener 12 o 13 caracteres"
+            
+        # Convertir a mayúsculas
+        rfc = rfc.upper()
+        
+        # Generar las iniciales esperadas
+        try:
+            # Para persona física (13 caracteres)
+            if len(rfc) == 13:
+                # Extraer consonante interna del apellido paterno
+                consonantes_paterno = [c for c in apellido_paterno.upper()[1:] if c in 'BCDFGHJKLMNPQRSTVWXYZ']
+                consonante_paterno = consonantes_paterno[0] if consonantes_paterno else 'X'
+                
+                # Iniciales esperadas: APELLIDO_PATERNO[0] + VOCAL_INTERNA_PATERNO + APELLIDO_MATERNO[0] + NOMBRE[0]
+                vocal_interna_paterno = None
+                for c in apellido_paterno.upper()[1:]:
+                    if c in 'AEIOU':
+                        vocal_interna_paterno = c
+                        break
+                vocal_interna_paterno = vocal_interna_paterno or 'X'
+                
+                iniciales_esperadas = (apellido_paterno[0].upper() + 
+                                    vocal_interna_paterno + 
+                                    apellido_materno[0].upper() + 
+                                    nombre[0].upper())
+                
+                # Verificar iniciales
+                if rfc[:4] != iniciales_esperadas:
+                    return False, f"Las iniciales del RFC ({rfc[:4]}) no coinciden con las esperadas ({iniciales_esperadas})"
+                
+                # Verificar homoclave (posiciones 10-12)
+                if not rfc[10:13].isalnum():
+                    return False, "La homoclave debe ser alfanumérica"
+                    
+            else:  # Persona moral (12 caracteres)
+                return True, "RFC válido (persona moral)"
+                
+        except Exception as e:
+            return False, f"Error en validación: {str(e)}"
+        
+        return True, "RFC válido"
 
     def cargar_proveedores(self):
         """
@@ -1071,12 +1128,15 @@ class ajustes:
             if seccion == "empleados" and fila_idx < len(self.empleados):
                 id_registro = self.empleados[fila_idx]["id"]
                 self.actualizar_empleado(id_registro, key, nuevo_valor)
+                self.cargar_empleados
             elif seccion == "clientes" and fila_idx < len(self.clientes):
                 id_registro = self.clientes[fila_idx]["id"]
                 self.actualizar_cliente(id_registro, key, nuevo_valor)
+                self.cargar_clientes
             elif seccion == "proveedores" and fila_idx < len(self.proveedores):
                 id_registro = self.proveedores[fila_idx]["id"]
                 self.actualizar_proveedor(id_registro, key, nuevo_valor)
+                self.cargar_proveedores
         else:
             self.mensaje_edicion = "Edición cancelada"
         
@@ -1114,9 +1174,19 @@ class ajustes:
             elif campo == "sexo" and nuevo_valor not in ["M", "F"]:
                 self.mensaje_edicion = "Sexo debe ser M o F"
                 return
-            elif campo == "curp" and len(nuevo_valor) != 18:
-                self.mensaje_edicion = "CURP debe tener 18 caracteres"
-                return
+            elif campo == "curp":
+                if len(nuevo_valor) != 18:
+                    self.mensaje_edicion = "CURP debe tener 18 caracteres"
+                    return
+                # Si la CURP es válida (18 caracteres), intenta validar el RFC asociado
+                if hasattr(self, 'rfc') and self.rfc:  # Asume que 'rfc' es un atributo o variable con el valor del RFC
+                    resultado_validacion = self.validar_rfc_con_curp(self.rfc, nuevo_valor)
+                    if resultado_validacion[0]:
+                        self.mensaje_edicion = "CURP y RFC válidos"
+                    else:
+                        self.mensaje_edicion = resultado_validacion[1]
+                else:
+                    self.mensaje_edicion = "CURP válida, pero no se proporcionó RFC para validar"
             elif campo == "rfc" and len(nuevo_valor) not in [12, 13]:
                 self.mensaje_edicion = "RFC debe tener 12 o 13 caracteres"
                 return
@@ -1896,3 +1966,47 @@ class ajustes:
                     conexion.cerrar()
             except:
                 pass
+    def validar_rfc_con_curp(self, rfc, curp):
+        """
+        Valida un RFC completo usando la CURP para extraer las iniciales
+        
+        Args:
+            rfc (str): RFC a validar
+            curp (str): CURP para extraer las iniciales
+        
+        Returns:
+            tuple: (bool, str) - Indica si es válido y mensaje de error
+        """
+        # Verificar longitud del RFC
+        if len(rfc) not in [12, 13]:
+            return False, "El RFC debe tener 12 o 13 caracteres"
+        
+        # Verificar longitud de la CURP
+        if len(curp) != 18:
+            return False, "La CURP debe tener 18 caracteres"
+        
+        # Convertir a mayúsculas
+        rfc = rfc.upper()
+        curp = curp.upper()
+        
+        try:
+            # Para persona física (13 caracteres)
+            if len(rfc) == 13:
+                # Extraer las iniciales de la CURP (posiciones 0-3)
+                iniciales_curp = curp[:4]
+                
+                # Verificar que las iniciales del RFC coincidan con las de la CURP
+                if rfc[:4] != iniciales_curp:
+                    return False, f"Las iniciales del RFC ({rfc[:4]}) no coinciden con las de la CURP ({iniciales_curp})"
+                
+                # Verificar homoclave (posiciones 10-12 del RFC)
+                if not rfc[10:13].isalnum():
+                    return False, "La homoclave debe ser alfanumérica"
+            
+            else:  # Persona moral (12 caracteres)
+                return True, "RFC válido (persona moral)"
+        
+        except Exception as e:
+            return False, f"Error en validación: {str(e)}"
+        
+        return True, "RFC válido"

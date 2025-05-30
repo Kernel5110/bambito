@@ -116,15 +116,6 @@ class Ticket:
             total += unidades * precio
         return total
 
-    def limpiar(self):
-        """
-        Limpia la lista de productos del ticket y reinicia valores de pago.
-        """
-        self.productos.clear()
-        self.tipo_pago = "Efectivo"
-        self.efectivo_recibido = 0.0
-        self.cambio = 0.0
-
     def eliminar_producto(self, nombre):
         """
         Elimina un producto del ticket por su nombre.
@@ -263,10 +254,25 @@ class Ticket:
             pdf.output(ruta_final)
             print(f"Ticket guardado en: {ruta_final}")
             # NO limpiar aquí para permitir múltiples operaciones con el mismo ticket
+            self.productos.clear()
+            self.tipo_pago = "Efectivo"
+            self.efectivo_recibido = 0.0
+            self.cambio = 0.0
             return ruta_final
         except Exception as e:
             print(f"Error al guardar el ticket: {e}")
             return None
+        
+    def limpiar(self):
+        """
+        Limpia la lista de productos del ticket y reinicia valores de pago.
+        """
+        self.productos.clear()
+        self.tipo_pago = "Efectivo"
+        self.efectivo_recibido = 0.0
+        self.cambio = 0.0
+        print("limpio")
+
 
     def dibujar(self, surface, x, y, w, h, fuente_titulo, fuente_producto, fuente_ticket, colores):
         """
